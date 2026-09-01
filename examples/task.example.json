@@ -1,0 +1,28 @@
+{
+  "task_id": "task-example-001",
+  "kind": "code",
+  "goal": "以最小範圍完成指定程式變更。",
+  "scope": "僅可修改指定 repository 與 checkout；不得擴大 repository grant。",
+  "canonical_sources": [
+    "docs/spec.md"
+  ],
+  "agent_id": "developer",
+  "repository": "/home/nickhuang23/repositories/team-a/service-x",
+  "checkout_subpath": "team-a/service-x",
+  "worktree_path": "/home/nickhuang23/oab-agent-worktrees/developer",
+  "container_mount_path": "/workspaces/developer/team-a/service-x",
+  "branch": "task/task-example-001",
+  "base_branch": "origin/develop",
+  "delivery_owner": "developer",
+  "gitlab_identity_ref": "gitlab-bootstrap",
+  "tests": [
+    "python3 -m unittest"
+  ],
+  "completion_marker": "必要測試、review 與 CI 均通過。",
+  "checkpoint": "回報變更、測試結果與風險。",
+  "deadline": "2026-12-31T12:00:00Z",
+  "reply_to": "200000000000000003",
+  "commit_authorized": true,
+  "push_authorized": true,
+  "mr_authorized": true
+}

@@ -1,0 +1,96 @@
+# 僅供範例。使用前請替換 repository 路徑與所有 Discord ID。
+version: 1
+defaults:
+  base_branch: origin/develop
+  human_access: deny
+  bot_message_mode: mentions
+
+agents:
+  leader:
+    role: leader
+    runtime:
+      command: openab
+      args: [--acp]
+      model: model-leader
+      image: registry.example.invalid/openab:pin-me
+    discord:
+      bot_secret_ref: discord-leader/token
+      bot_user_id: "100000000000000001"
+      entry_channel_id: "200000000000000001"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: ["300000000000000001"]
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["100000000000000002", "100000000000000003", "100000000000000004"]
+    worktree:
+      path: /home/nickhuang23/oab-agent-worktrees/leader
+      container_mount_path: /workspaces/leader
+      collection_roots: [/home/nickhuang23/repositories]
+    repository_grants:
+      - repository: /home/nickhuang23/repositories/team-a/service-x
+        checkout_subpath: team-a/service-x
+        access: read
+    delivery:
+      gitlab_identity_ref: gitlab-bootstrap
+    egress_grants: [discord, gitlab, model-provider]
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+
+  researcher:
+    role: researcher
+    runtime: {command: openab, args: [--acp], model: model-researcher, image: registry.example.invalid/openab:pin-me}
+    discord:
+      bot_secret_ref: discord-researcher/token
+      bot_user_id: "100000000000000002"
+      work_channel_id: "200000000000000002"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: []
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["100000000000000001"]
+    worktree: {path: /home/nickhuang23/oab-agent-worktrees/researcher, container_mount_path: /workspaces/researcher, collection_roots: [/home/nickhuang23/repositories]}
+    repository_grants: [{repository: /home/nickhuang23/repositories/team-a/service-x, checkout_subpath: team-a/service-x, access: read}]
+    delivery: {gitlab_identity_ref: gitlab-bootstrap}
+    egress_grants: [discord, gitlab, model-provider]
+    resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+
+  developer:
+    role: developer
+    runtime: {command: openab, args: [--acp], model: model-developer, image: registry.example.invalid/openab:pin-me}
+    discord:
+      bot_secret_ref: discord-developer/token
+      bot_user_id: "100000000000000003"
+      work_channel_id: "200000000000000003"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: []
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["100000000000000001"]
+    worktree: {path: /home/nickhuang23/oab-agent-worktrees/developer, container_mount_path: /workspaces/developer, collection_roots: [/home/nickhuang23/repositories]}
+    repository_grants: [{repository: /home/nickhuang23/repositories/team-a/service-x, checkout_subpath: team-a/service-x, access: write}]
+    delivery: {gitlab_identity_ref: gitlab-bootstrap}
+    egress_grants: [discord, gitlab, model-provider, package-registry]
+    resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
+
+  reviewer:
+    role: reviewer
+    runtime: {command: openab, args: [--acp], model: model-reviewer, image: registry.example.invalid/openab:pin-me}
+    discord:
+      bot_secret_ref: discord-reviewer/token
+      bot_user_id: "100000000000000004"
+      work_channel_id: "200000000000000004"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: []
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["100000000000000001"]
+    worktree: {path: /home/nickhuang23/oab-agent-worktrees/reviewer, container_mount_path: /workspaces/reviewer, collection_roots: [/home/nickhuang23/repositories]}
+    repository_grants: [{repository: /home/nickhuang23/repositories/team-a/service-x, checkout_subpath: team-a/service-x, access: read}]
+    delivery: {gitlab_identity_ref: gitlab-bootstrap}
+    egress_grants: [discord, gitlab, model-provider]
+    resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}

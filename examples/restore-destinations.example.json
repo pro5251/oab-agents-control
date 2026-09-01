@@ -1,0 +1,6 @@
+{
+  "catalog": "/restore/oab/config/catalog.yaml",
+  "coordination_repository": "/restore/oab/coordination",
+  "agent_worktrees_root": "/restore/oab/worktrees",
+  "k3s_state": "/restore/oab/k3s"
+}

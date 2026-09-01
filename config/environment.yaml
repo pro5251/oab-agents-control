@@ -1,0 +1,84 @@
+# 不含 Secret 值的本機 bootstrap 合約。只有在操作員確認實際 GitLab 與 Discord
+# 資源後，才能替換 pending decision。
+version: 1
+status: bootstrap-pending
+
+implementation:
+  repository: /home/nickhuang23/oab-agents-control
+  default_branch: main
+
+paths:
+  catalog: /home/nickhuang23/oab-agents-control/config/catalog.yaml
+  coordination_repository: /home/nickhuang23/oab-agents/coordination
+  collection_roots:
+    - /home/nickhuang23/repositories
+  agent_worktrees_root: /home/nickhuang23/oab-agent-worktrees
+  k3s_state: /var/lib/rancher/k3s
+  backup_target: /home/nickhuang23/oab-agent-backups
+  secrets_file: /home/nickhuang23/oab-agents-control/config/secrets.yaml
+
+gitlab:
+  host: pending.operator.selection
+  default_base_branch: origin/develop
+  projects: []
+  identity_refs:
+    - gitlab-bootstrap
+
+discord:
+  server_id: pending.operator.selection
+  leader_entry_channel_id: pending.operator.selection
+  human_user_ids: []
+  bot_identities: []
+
+profiles:
+  leader:
+    role: leader
+    bot_secret_ref: pending/leader-token
+    model: pending.operator.selection
+    image: pending.operator.selection
+  researcher:
+    role: researcher
+    bot_secret_ref: pending/researcher-token
+    model: pending.operator.selection
+    image: pending.operator.selection
+  developer:
+    role: developer
+    bot_secret_ref: pending/developer-token
+    model: pending.operator.selection
+    image: pending.operator.selection
+  reviewer:
+    role: reviewer
+    bot_secret_ref: pending/reviewer-token
+    model: pending.operator.selection
+    image: pending.operator.selection
+
+k3s:
+  context: pending.operator.selection
+  deployer_kubeconfig_env: KUBECONFIG
+  secret_materializer_kubeconfig_env: OAB_SECRET_MATERIALIZER_KUBECONFIG
+  secrets_encryption_enabled: true
+  secrets_encryption_recovery_ref: operator://pending-k3s-secrets-recovery
+  network_policy_controller: kube-router
+
+pending_decisions:
+  - key: control_host.collection_roots
+    owner: operator
+    placeholder_policy: 替換為包含精確 GitLab repository 的既有本機目錄
+  - key: gitlab.projects
+    owner: operator
+    placeholder_policy: 加入精確本機 repository 路徑、GitLab remote 與選用的 base branch 覆寫值
+  - key: discord.identities_and_channels
+    owner: operator
+    placeholder_policy: 僅加入數字 Discord ID；絕不可使用邏輯 Agent ID 或 token
+  - key: runtime_profiles
+    owner: operator
+    placeholder_policy: 為四個 profile 固定 ACP command、model、OpenAB image 與 requests／limits
+  - key: local_secrets_and_k3s_encryption
+    owner: operator
+    placeholder_policy: 記錄 Secret 名稱／key 與 encryption-key recovery 位置，絕不記錄值
+  - key: egress_proxy_and_backups
+    owner: operator
+    placeholder_policy: 定義 local proxy 位址、允許網域、備份目標、保留期與還原負責人
+  - key: gitlab_acceptance
+    owner: operator
+    placeholder_policy: 在第一個 delivery task 前定義 CI check、MR template 與人類核准者

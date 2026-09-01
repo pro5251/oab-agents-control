@@ -1,0 +1,4 @@
+# Secret values and operator-local generated state never belong in Git.
+secrets.yaml
+catalog.local.yaml
+*.resolved.yaml
