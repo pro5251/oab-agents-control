@@ -57,6 +57,8 @@ PYTHONPATH=. python3 -m oab_control.cli preflight config/environment.yaml \
 
 逐步的 local 操作流程請參閱
 [docs/operator-runbook.md](docs/operator-runbook.md)。
+若要將此 repository 上傳到 GitHub，請參閱
+[Git 遠端與憑證配置手冊](docs/git-遠端與憑證配置手冊.md)。
 啟用真實環境前需由操作員提供的資料與權限分界請參閱
 [部署前置資料清單](docs/部署前置資料清單.md)。
 
