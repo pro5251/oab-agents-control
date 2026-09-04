@@ -45,6 +45,25 @@ def agent_role_binding_name(agent_id: str) -> str:
 #: these -- they are installed once, out of band, before the first deploy.
 BOOTSTRAP_ONLY_KINDS = frozenset({"Namespace", "Role", "RoleBinding"})
 
+#: How agents are allowed to reach the network.
+#:
+#: ``proxy-only`` is the intended end state: nothing leaves the namespace
+#: except through a domain-filtering proxy in ``oab-egress``.  It requires
+#: that proxy to exist *and* that the workload honour it -- OpenAB's Discord
+#: gateway calls ``tokio_tungstenite::connect_async`` directly and has no
+#: proxy support, so this mode currently leaves agents with no usable path
+#: out.  See docs/架構說明.md.
+#:
+#: ``public-tls`` is the documented interim: public HTTPS only, with private
+#: ranges and the cloud metadata address still denied, so an agent cannot
+#: reach cluster-internal services or steal instance credentials.  It does
+#: not give per-domain control -- an agent may reach any public HTTPS host.
+EGRESS_MODES = ("proxy-only", "public-tls")
+
+#: Denied even in ``public-tls``: RFC1918, link-local (which covers the
+#: 169.254.169.254 metadata endpoint), loopback, and CGNAT.
+_PRIVATE_RANGES = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "127.0.0.0/8", "100.64.0.0/10")
+
 
 def render_k8s_manifests(
     catalog: Mapping[str, Any],
@@ -54,6 +73,7 @@ def render_k8s_manifests(
     proxy_selector: Mapping[str, str] | None = None,
     proxy_port: int = 8080,
     deployer_scoped: bool = False,
+    egress_mode: str = "proxy-only",
 ) -> list[dict[str, Any]]:
     """Render one non-privileged SA per agent and namespace isolation policy.
 
@@ -65,6 +85,8 @@ def render_k8s_manifests(
     _safe_name(proxy_namespace)
     if not 1 <= proxy_port <= 65535:
         raise KubernetesRenderError("proxy port must be between 1 and 65535")
+    if egress_mode not in EGRESS_MODES:
+        raise KubernetesRenderError(f"egress mode must be one of: {', '.join(EGRESS_MODES)}")
     selector = dict(proxy_selector or {"app.kubernetes.io/name": "oab-egress-proxy"})
     if not selector or any(not isinstance(key, str) or not isinstance(value, str) or not key or not value for key, value in selector.items()):
         raise KubernetesRenderError("proxy selector must contain non-empty string labels")
@@ -232,6 +254,37 @@ def render_k8s_manifests(
             },
         }
     )
+    if egress_mode == "public-tls":
+        manifests.append(
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {
+                    "name": "oab-agents-allow-public-tls",
+                    "namespace": namespace,
+                    "annotations": {
+                        # Say plainly, in the cluster itself, that this is a
+                        # deliberate interim and what it does not give you.
+                        "oab-agents.io/egress-mode": "public-tls",
+                        "oab-agents.io/rationale": (
+                            "Interim: OpenAB's Discord gateway cannot use an HTTP proxy, so proxy-only "
+                            "leaves agents with no network path. Public HTTPS is allowed; private ranges "
+                            "and the metadata address stay denied. This grants no per-domain control."
+                        ),
+                    },
+                },
+                "spec": {
+                    "podSelector": {},
+                    "policyTypes": ["Egress"],
+                    "egress": [
+                        {
+                            "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": list(_PRIVATE_RANGES)}}],
+                            "ports": [{"protocol": "TCP", "port": 443}],
+                        }
+                    ],
+                },
+            }
+        )
     if deployer_scoped:
         return [manifest for manifest in manifests if manifest["kind"] not in BOOTSTRAP_ONLY_KINDS]
     return manifests

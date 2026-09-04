@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from .k8s import EGRESS_MODES
 from .yaml_utils import load_yaml
 
 
@@ -118,7 +119,7 @@ def validate_environment(document: Any, *, require_ready: bool = False) -> list[
             error("$.k3s", "required", "ready deployment contracts must record K3s identity, encryption recovery, and network-policy controller")
         k3s = {}
     else:
-        for key in sorted(set(k3s) - {"context", "deployer_kubeconfig_env", "secret_materializer_kubeconfig_env", "secrets_encryption_enabled", "secrets_encryption_recovery_ref", "network_policy_controller"}):
+        for key in sorted(set(k3s) - {"context", "deployer_kubeconfig_env", "secret_materializer_kubeconfig_env", "secrets_encryption_enabled", "secrets_encryption_recovery_ref", "network_policy_controller", "egress_mode"}):
             error(f"$.k3s.{key}", "unknown_field", "field is not part of the K3s bootstrap contract")
         for key in ("context", "deployer_kubeconfig_env", "secret_materializer_kubeconfig_env", "secrets_encryption_recovery_ref", "network_policy_controller"):
             value = k3s.get(key)
@@ -132,6 +133,11 @@ def validate_environment(document: Any, *, require_ready: bool = False) -> list[
             error("$.k3s.secrets_encryption_enabled", "security", "Secrets at-rest encryption must be explicitly enabled")
         if k3s.get("network_policy_controller") != "kube-router":
             error("$.k3s.network_policy_controller", "security", "K3s must retain the kube-router NetworkPolicy controller")
+        # Absent means the strict default.  Widening egress has to be written
+        # down in the contract, never applied as an out-of-band kubectl patch.
+        egress_mode = k3s.get("egress_mode", "proxy-only")
+        if egress_mode not in EGRESS_MODES:
+            error("$.k3s.egress_mode", "egress_mode", f"must be one of: {', '.join(EGRESS_MODES)}")
         _scan_for_secrets(k3s, "$.k3s", error)
 
     section_keys = {

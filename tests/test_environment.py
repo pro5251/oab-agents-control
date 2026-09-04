@@ -75,6 +75,23 @@ class EnvironmentTests(unittest.TestCase):
         self.assertTrue(any(error.path.endswith("secret_materializer_kubeconfig_env") and error.code == "required" for error in missing))
         self.assertTrue(any(error.code == "separate_identity" for error in shared))
 
+    def test_egress_mode_is_optional_and_defaults_to_the_strict_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = environment(Path(directory))
+            document["k3s"].pop("egress_mode", None)
+            errors = validate_environment(document)
+        self.assertFalse([error for error in errors if "egress_mode" in error.path])
+
+    def test_egress_mode_must_be_a_known_value(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = environment(Path(directory))
+            document["k3s"]["egress_mode"] = "allow-everything"
+            bad = validate_environment(document)
+            document["k3s"]["egress_mode"] = "public-tls"
+            good = validate_environment(document)
+        self.assertTrue(any(error.code == "egress_mode" for error in bad))
+        self.assertFalse([error for error in good if "egress_mode" in error.path])
+
 
 if __name__ == "__main__":
     unittest.main()

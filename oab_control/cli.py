@@ -14,7 +14,7 @@ from .renderer import render_openab_values_yaml
 from .operations import ControlOperations, OperationError
 from .tasks import Task, TaskError, TaskStore, validate_task_catalog_binding
 from .worktree import Checkout, WorktreeError, WorktreeManager
-from .k8s import render_k8s_yaml
+from .k8s import EGRESS_MODES, render_k8s_yaml
 from .registry import WorkspaceRecord, WorkspaceRegistry
 from .backup import BackupError, COMPONENTS, LocalBackup
 from .preflight import collect_preflight
@@ -33,6 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--namespace", default="oab-agents", help="target namespace included in a plan")
         if command == "render-openab":
             subparser.add_argument("--runtime-volume-size", default="10Gi")
+        if command == "render-k8s":
+            subparser.add_argument(
+                "--egress-mode",
+                choices=EGRESS_MODES,
+                default="proxy-only",
+                help="proxy-only denies all egress except the oab-egress proxy; public-tls also allows public HTTPS while still denying private ranges and the metadata address",
+            )
     environment = subparsers.add_parser("environment-validate", help="validate the non-secret local bootstrap contract")
     environment.add_argument("environment", help="path to environment.yaml")
     environment.add_argument("--json", action="store_true", help="emit machine-readable diagnostics")
@@ -453,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(render_openab_values_yaml(catalog, runtime_volume_size=args.runtime_volume_size))
         return 0
     if args.command == "render-k8s" and not diagnostics and catalog is not None:
-        sys.stdout.write(render_k8s_yaml(catalog, namespace=args.namespace))
+        sys.stdout.write(render_k8s_yaml(catalog, namespace=args.namespace, egress_mode=args.egress_mode))
         return 0
     if args.json:
         payload: dict[str, object] = {

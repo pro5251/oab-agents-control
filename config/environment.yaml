@@ -74,5 +74,30 @@ k3s:
   secrets_encryption_recovery_ref: operator://local-k3s-secrets-recovery
   network_policy_controller: kube-router
 
+  # ------------------------------------------------------------------------
+  # Egress 管控：暫時放寬為 public-tls
+  #
+  # 為什麼不是 proxy-only（原設計的目標狀態）：
+  #   proxy-only 只放行往 oab-egress namespace 的 proxy，但 OpenAB 的 Discord
+  #   gateway 走 tokio_tungstenite::connect_async() 直連，二進位檔中沒有任何
+  #   HTTPS_PROXY 支援。也就是說即使把 proxy 建起來，agent 也不會使用它，
+  #   結果是 agent 完全沒有對外路徑、bot 無法連線。
+  #   （原設計的缺陷分析見 docs/架構說明.md#egress-管控）
+  #
+  # public-tls 實際給了什麼：
+  #   ✅ 允許公網 TCP/443
+  #   ✅ 仍然拒絕 RFC1918 內網（阻止叢集內橫向移動）
+  #   ✅ 仍然拒絕 169.254.0.0/16（阻止竊取雲端 metadata 憑證）
+  #   ❌ 沒有逐網域管控 —— agent 可連任何公開 HTTPS 主機
+  #
+  # 何時必須收緊回去：
+  #   1. agent 拿到真實 LLM 憑證（能自主行動）之前
+  #   2. workspace 掛載了不希望外流的內容之前
+  #   3. 這套東西要跑在共用或正式主機上之前
+  #
+  # 收緊的正解不是 proxy，是 Cilium 的 toFQDNs（eBPF 攔截 DNS，不需要
+  # client 支援 proxy，因此 WebSocket 也管得到）。
+  egress_mode: public-tls
+
 # 已全部解決；ready 狀態要求此清單為空。
 pending_decisions: []

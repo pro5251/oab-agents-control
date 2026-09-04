@@ -201,7 +201,12 @@ class ControlOperations:
             # Namespace and RBAC are bootstrap-only: the deployer identity has
             # no permission for them, so a confirmed apply must render only the
             # subset it is actually scoped to manage.
-            render_k8s_yaml(prepared.catalog, namespace=self.namespace, deployer_scoped=True),
+            render_k8s_yaml(
+                prepared.catalog,
+                namespace=self.namespace,
+                deployer_scoped=True,
+                egress_mode=_egress_mode(environment_document),
+            ),
         )
         result: dict[str, Any] = {
             "namespace": self.namespace,
@@ -428,7 +433,12 @@ class ControlOperations:
             # Namespace and RBAC are bootstrap-only: the deployer identity has
             # no permission for them, so a confirmed apply must render only the
             # subset it is actually scoped to manage.
-            render_k8s_yaml(prepared.catalog, namespace=self.namespace, deployer_scoped=True),
+            render_k8s_yaml(
+                prepared.catalog,
+                namespace=self.namespace,
+                deployer_scoped=True,
+                egress_mode=_egress_mode(environment_document),
+            ),
         )
         result["k8s_apply_output"] = (k8s_apply or (lambda manifest: _kubectl_apply(manifest, kubeconfig=deployer_kubeconfig)))(k8s_path)
         result["apply_output"] = apply_result(chart, values_path, release, self.namespace)
@@ -742,6 +752,18 @@ def _mark_snapshot_failure(snapshot: Path, error: Exception) -> None:
     document["apply_failed"] = True
     document["apply_failure_type"] = type(error).__name__
     _atomic_text(metadata_path, json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+
+def _egress_mode(environment: Mapping[str, Any] | None) -> str:
+    """Read the operator's recorded egress decision, defaulting to strict.
+
+    An absent contract (an unconfirmed preview) renders the strict default, so
+    a preview never shows a wider policy than a confirmed apply would install.
+    """
+
+    k3s = environment.get("k3s") if isinstance(environment, Mapping) else None
+    mode = k3s.get("egress_mode") if isinstance(k3s, Mapping) else None
+    return mode if isinstance(mode, str) and mode else "proxy-only"
 
 
 def _format_diagnostics(diagnostics: list[Diagnostic]) -> str:

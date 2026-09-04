@@ -63,6 +63,38 @@ class KubernetesRenderTests(unittest.TestCase):
         self.assertTrue(name.startswith("oab-agent-"))
         self.assertEqual(name, agent_service_account_name("a" * 63))
 
+    def test_default_egress_mode_allows_nothing_beyond_the_proxy(self) -> None:
+        names = {item["metadata"]["name"] for item in render_k8s_manifests(self.normalized())}
+        self.assertNotIn("oab-agents-allow-public-tls", names)
+        self.assertIn("oab-agents-default-deny", names)
+
+    def test_public_tls_mode_allows_443_but_still_denies_private_and_metadata(self) -> None:
+        manifests = render_k8s_manifests(self.normalized(), egress_mode="public-tls")
+        policy = next(item for item in manifests if item["metadata"]["name"] == "oab-agents-allow-public-tls")
+        rule = policy["spec"]["egress"][0]
+        self.assertEqual(rule["ports"], [{"protocol": "TCP", "port": 443}])
+        block = rule["to"][0]["ipBlock"]
+        self.assertEqual(block["cidr"], "0.0.0.0/0")
+        # Cluster-internal movement and the cloud metadata endpoint stay denied.
+        for denied in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"):
+            self.assertIn(denied, block["except"])
+        # The widening has to explain itself where an operator will see it.
+        self.assertIn("oab-agents.io/rationale", policy["metadata"]["annotations"])
+        # default-deny is not removed; this policy is additive.
+        names = {item["metadata"]["name"] for item in manifests}
+        self.assertIn("oab-agents-default-deny", names)
+
+    def test_public_tls_egress_survives_the_deployer_scoped_filter(self) -> None:
+        """NetworkPolicy is deployer-applicable, so deploy must still carry it."""
+
+        manifests = render_k8s_manifests(self.normalized(), egress_mode="public-tls", deployer_scoped=True)
+        names = {item["metadata"]["name"] for item in manifests}
+        self.assertIn("oab-agents-allow-public-tls", names)
+
+    def test_unknown_egress_mode_is_rejected(self) -> None:
+        with self.assertRaises(KubernetesRenderError):
+            render_k8s_manifests(self.normalized(), egress_mode="allow-everything")
+
 
 if __name__ == "__main__":
     unittest.main()
