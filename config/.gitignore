@@ -2,3 +2,12 @@
 secrets.yaml
 catalog.local.yaml
 *.resolved.yaml
+
+# 操作員專屬的實際設定。它們會含有你的 Discord 伺服器／bot／使用者 ID，
+# 屬於個人識別資料，不進版控。repo 只保留 *.example 範本。
+catalog.yaml
+environment.yaml
+reference-manifest.yaml
+remotes.json
+backup-sources.json
+tasks/

@@ -1,5 +1,9 @@
 # ============================================================================
-# oab-agents-control 正式 catalog
+# oab-agents-control catalog 範本
+#
+# 複製為 config/catalog.yaml 後填入你自己的值。
+# config/catalog.yaml 已被 .gitignore 排除 —— 它會含有你的 Discord
+# 伺服器與 bot ID，那些屬於操作員專屬資料，不進版控。
 #
 # ⚠️  下列 Discord ID 目前是「格式合法的佔位值」，不是真實的 Discord snowflake。
 #     驗證器只檢查格式（17–20 位數字），無法分辨真假。

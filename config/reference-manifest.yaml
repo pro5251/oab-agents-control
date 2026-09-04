@@ -1,9 +1,0 @@
-# 僅含名稱。此 manifest 可安全地保存於本機 control repository；其中絕不可包含
-# Secret 值或 token。
-secret_refs:
-  - discord-leader/token
-  - discord-researcher/token
-  - discord-developer/token
-  - discord-reviewer/token
-identity_refs:
-  - gitlab-bootstrap

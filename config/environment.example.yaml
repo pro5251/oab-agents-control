@@ -1,12 +1,12 @@
-# 不含 Secret 值的本機 bootstrap 合約。
+# 不含 Secret 值的本機 bootstrap 合約 —— 範本。
 #
-# 狀態：ready —— 本機 K3s 已 bootstrap，路徑均已存在，可用於 deploy --yes。
+# 複製為 config/environment.yaml 後填入你自己的值。
+# config/environment.yaml 已被 .gitignore 排除。
 #
-# ⚠️  Discord 與 GitLab 區段目前仍是佔位值。它們不影響 deploy 能否執行
-#     （驗證器只檢查格式與非敏感性），但在 Discord／GitLab adapter 真的要
-#     運作前必須換成真實值。詳見 docs/部署前置資料清單.md。
+# 刻意維持 bootstrap-pending：在操作員確認實際路徑、GitLab 與 Discord
+# 資源之前，environment-validate --require-ready 必須持續失敗。
 version: 1
-status: ready
+status: bootstrap-pending
 
 implementation:
   repository: /home/nickhuang23/oab-agents-control
@@ -74,30 +74,27 @@ k3s:
   secrets_encryption_recovery_ref: operator://local-k3s-secrets-recovery
   network_policy_controller: kube-router
 
-  # ------------------------------------------------------------------------
-  # Egress 管控：暫時放寬為 public-tls
-  #
-  # 為什麼不是 proxy-only（原設計的目標狀態）：
-  #   proxy-only 只放行往 oab-egress namespace 的 proxy，但 OpenAB 的 Discord
-  #   gateway 走 tokio_tungstenite::connect_async() 直連，二進位檔中沒有任何
-  #   HTTPS_PROXY 支援。也就是說即使把 proxy 建起來，agent 也不會使用它，
-  #   結果是 agent 完全沒有對外路徑、bot 無法連線。
-  #   （原設計的缺陷分析見 docs/架構說明.md#egress-管控）
-  #
-  # public-tls 實際給了什麼：
-  #   ✅ 允許公網 TCP/443
-  #   ✅ 仍然拒絕 RFC1918 內網（阻止叢集內橫向移動）
-  #   ✅ 仍然拒絕 169.254.0.0/16（阻止竊取雲端 metadata 憑證）
-  #   ❌ 沒有逐網域管控 —— agent 可連任何公開 HTTPS 主機
-  #
-  # 何時必須收緊回去：
-  #   1. agent 拿到真實 LLM 憑證（能自主行動）之前
-  #   2. workspace 掛載了不希望外流的內容之前
-  #   3. 這套東西要跑在共用或正式主機上之前
-  #
-  # 收緊的正解不是 proxy，是 Cilium 的 toFQDNs（eBPF 攔截 DNS，不需要
-  # client 支援 proxy，因此 WebSocket 也管得到）。
-  egress_mode: public-tls
+  # Egress 管控模式：
+  #   proxy-only（預設）只放行往 oab-egress proxy —— 但 OpenAB 的 Discord
+  #     gateway 直連、不支援 proxy，此模式下 agent 沒有可用的對外路徑。
+  #   public-tls 額外放行公網 TCP/443，仍拒絕內網與雲端 metadata 位址。
+  # 取捨與收緊條件見 docs/架構說明.md#egress-管控
+  egress_mode: proxy-only
 
-# 已全部解決；ready 狀態要求此清單為空。
-pending_decisions: []
+# ready 狀態要求此清單為空。逐項確認後才可刪除。
+pending_decisions:
+  - key: control_host.paths
+    owner: operator
+    placeholder_policy: 替換為本機實際的 catalog、collection root、worktree 與備份路徑
+  - key: gitlab.projects
+    owner: operator
+    placeholder_policy: 加入精確本機 repository 路徑與 delivery remote
+  - key: discord.identities_and_channels
+    owner: operator
+    placeholder_policy: 僅加入數字 Discord ID；bot ID 可由 token 第一段 base64 解出
+  - key: runtime_profiles
+    owner: operator
+    placeholder_policy: 固定 ACP command、model、OpenAB image 與 working_dir（須符合 image 變體）
+  - key: k3s_and_egress
+    owner: operator
+    placeholder_policy: 確認 kubeconfig 環境變數、Secrets 加密，並決定 egress_mode

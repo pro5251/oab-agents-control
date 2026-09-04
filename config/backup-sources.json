@@ -1,6 +1,0 @@
-{
-  "catalog": "/home/nickhuang23/oab-agents-control/config/catalog.yaml",
-  "coordination_repository": "/home/nickhuang23/oab-agents/coordination",
-  "agent_worktrees_root": "/home/nickhuang23/oab-agent-worktrees",
-  "k3s_state": "/home/nickhuang23/oab-k3s-state"
-}
