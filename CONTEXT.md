@@ -121,6 +121,35 @@ Task record 中用於派工的欄位子集。不含任何憑證。
 狀態轉換的前置條件。缺少必要證據時轉換會失敗，
 而不是產生警告後放行。
 
+### 派工（Dispatch）
+
+**這個詞在三個地方有三個意思，本專案只採用第三個：**
+
+- OpenAB 的 `openab-core/src/dispatch.rs` — ACP turn 的批次排程。與本專案無關。
+- `discord_policy.dispatch_channel()` — **解析**某個 worker 的目標頻道。
+  它只回答「該送到哪」，不送任何東西。
+- **派工** — leader 操作員把一份 task record 的路由摘要，
+  以 leader bot 的身分送進該 worker 的私有頻道。
+
+單獨寫「派工」時一律指第三個。指第二個時寫「解析派工頻道」。
+
+### 派工訊息（Dispatch message）
+
+送進 worker 私有頻道的那一則 Discord 訊息。內容是**路由摘要**，
+不是完整 brief：它提及該 worker 的 bot、標明任務編號、分支與 checkout 邊界。
+
+它刻意不含 task record 的 goal／scope 全文——那些文字可能來自
+被注入的來源，不應該由控制平面轉貼進 Discord。詳見
+[任務指示檔](#任務指示檔taskmd)。
+
+### 任務指示檔（TASK.md）
+
+`worktree-materialize` 寫進該 task 分支 checkout 根目錄的檔案，
+內含完整 brief。Worker 在容器內直接讀它，內容不經過 Discord。
+
+它是 checkout 內的檔案，因此既有的指示檔偵測（`status` 的
+`instruction_files`）自然涵蓋它。
+
 ---
 
 ## 證據

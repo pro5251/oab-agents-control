@@ -308,7 +308,7 @@ Agent 有核心層擋著；leader 操作員只有自律。
 | 項目 | 消除的落差 |
 | --- | --- |
 | Cilium `toFQDNs` 網域層 egress | §9(4) |
-| Discord 派工 adapter（A007） | 目前派工仍需手動 |
+| Discord 派工 adapter（A007） | 目前派工仍需手動 |（規格已寫：[規格-派工-A007.md](規格-派工-A007.md)）
 | CI evidence adapter（A009） | `ci_status` 目前純屬聲稱 |
 
 ---
