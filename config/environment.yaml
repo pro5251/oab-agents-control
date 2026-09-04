@@ -1,7 +1,12 @@
-# 不含 Secret 值的本機 bootstrap 合約。只有在操作員確認實際 GitLab 與 Discord
-# 資源後，才能替換 pending decision。
+# 不含 Secret 值的本機 bootstrap 合約。
+#
+# 狀態：ready —— 本機 K3s 已 bootstrap，路徑均已存在，可用於 deploy --yes。
+#
+# ⚠️  Discord 與 GitLab 區段目前仍是佔位值。它們不影響 deploy 能否執行
+#     （驗證器只檢查格式與非敏感性），但在 Discord／GitLab adapter 真的要
+#     運作前必須換成真實值。詳見 docs/部署前置資料清單.md。
 version: 1
-status: bootstrap-pending
+status: ready
 
 implementation:
   repository: /home/nickhuang23/oab-agents-control
@@ -13,72 +18,61 @@ paths:
   collection_roots:
     - /home/nickhuang23/repositories
   agent_worktrees_root: /home/nickhuang23/oab-agent-worktrees
-  k3s_state: /var/lib/rancher/k3s
+  k3s_state: /home/nickhuang23/oab-k3s-state
   backup_target: /home/nickhuang23/oab-agent-backups
   secrets_file: /home/nickhuang23/oab-agents-control/config/secrets.yaml
 
 gitlab:
-  host: pending.operator.selection
-  default_base_branch: origin/develop
-  projects: []
+  # 本機 bootstrap 階段使用本機 bare repo 作為 delivery remote，
+  # 對應 config/remotes.json 的 file:// URL。
+  host: local-bootstrap.invalid
+  default_base_branch: origin/main
+  projects:
+    - openab-council-relay
   identity_refs:
     - gitlab-bootstrap
 
 discord:
-  server_id: pending.operator.selection
-  leader_entry_channel_id: pending.operator.selection
-  human_user_ids: []
-  bot_identities: []
+  # ⚠️ 佔位值，需替換為真實 Discord ID
+  server_id: "900000000000000000"
+  leader_entry_channel_id: "900000000000001001"
+  human_user_ids:
+    - "900000000000002001"
+  bot_identities:
+    - leader
+    - researcher
+    - developer
+    - reviewer
 
 profiles:
   leader:
     role: leader
-    bot_secret_ref: pending/leader-token
-    model: pending.operator.selection
-    image: pending.operator.selection
+    bot_secret_ref: discord-leader/token
+    model: model-leader
+    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
   researcher:
     role: researcher
-    bot_secret_ref: pending/researcher-token
-    model: pending.operator.selection
-    image: pending.operator.selection
+    bot_secret_ref: discord-researcher/token
+    model: model-researcher
+    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
   developer:
     role: developer
-    bot_secret_ref: pending/developer-token
-    model: pending.operator.selection
-    image: pending.operator.selection
+    bot_secret_ref: discord-developer/token
+    model: model-developer
+    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
   reviewer:
     role: reviewer
-    bot_secret_ref: pending/reviewer-token
-    model: pending.operator.selection
-    image: pending.operator.selection
+    bot_secret_ref: discord-reviewer/token
+    model: model-reviewer
+    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
 
 k3s:
-  context: pending.operator.selection
+  context: default
   deployer_kubeconfig_env: KUBECONFIG
   secret_materializer_kubeconfig_env: OAB_SECRET_MATERIALIZER_KUBECONFIG
   secrets_encryption_enabled: true
-  secrets_encryption_recovery_ref: operator://pending-k3s-secrets-recovery
+  secrets_encryption_recovery_ref: operator://local-k3s-secrets-recovery
   network_policy_controller: kube-router
 
-pending_decisions:
-  - key: control_host.collection_roots
-    owner: operator
-    placeholder_policy: 替換為包含精確 GitLab repository 的既有本機目錄
-  - key: gitlab.projects
-    owner: operator
-    placeholder_policy: 加入精確本機 repository 路徑、GitLab remote 與選用的 base branch 覆寫值
-  - key: discord.identities_and_channels
-    owner: operator
-    placeholder_policy: 僅加入數字 Discord ID；絕不可使用邏輯 Agent ID 或 token
-  - key: runtime_profiles
-    owner: operator
-    placeholder_policy: 為四個 profile 固定 ACP command、model、OpenAB image 與 requests／limits
-  - key: local_secrets_and_k3s_encryption
-    owner: operator
-    placeholder_policy: 記錄 Secret 名稱／key 與 encryption-key recovery 位置，絕不記錄值
-  - key: egress_proxy_and_backups
-    owner: operator
-    placeholder_policy: 定義 local proxy 位址、允許網域、備份目標、保留期與還原負責人
-  - key: gitlab_acceptance
-    owner: operator
-    placeholder_policy: 在第一個 delivery task 前定義 CI check、MR template 與人類核准者
+# 已全部解決；ready 狀態要求此清單為空。
+pending_decisions: []

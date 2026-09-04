@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import yaml
 
-from oab_control.operations import ControlOperations, OperationError, _kubectl_apply
+from oab_control.catalog import validate_catalog
+from oab_control.k8s import BOOTSTRAP_ONLY_KINDS, render_k8s_manifests
+from oab_control.operations import ControlOperations, OperationError, _helm_apply, _kubectl_apply
 from oab_control.registry import WorkspaceRecord, WorkspaceRegistry
 from oab_control.tasks import Task, TaskStore
 from test_catalog import catalog
@@ -619,6 +622,90 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(observation["state"], "needs-reconciliation")
         self.assertEqual(observation["catalog_binding"], "mismatch")
         self.assertIn("reply channel", observation["catalog_binding_reason"])
+
+
+class DeployerScopedIsolationTests(unittest.TestCase):
+    """A confirmed apply must only contain what the deployer identity may apply."""
+
+    def manifests(self, root: Path, **kwargs) -> list[dict]:
+        normalized, diagnostics = validate_catalog(catalog(root))
+        self.assertEqual(diagnostics, [])
+        assert normalized is not None
+        return render_k8s_manifests(normalized, namespace="oab-agents", **kwargs)
+
+    def test_bootstrap_render_still_contains_namespace_and_rbac(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            kinds = {item["kind"] for item in self.manifests(Path(directory))}
+        self.assertEqual(
+            kinds,
+            {"Namespace", "ServiceAccount", "Role", "RoleBinding", "NetworkPolicy"},
+        )
+
+    def test_deployer_scoped_render_drops_bootstrap_only_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            scoped = self.manifests(Path(directory), deployer_scoped=True)
+        kinds = {item["kind"] for item in scoped}
+        # The deployer Role grants no namespaces/roles/rolebindings access, so
+        # re-applying them during deploy would fail closed against RBAC.
+        self.assertTrue(BOOTSTRAP_ONLY_KINDS.isdisjoint(kinds))
+        self.assertEqual(kinds, {"ServiceAccount", "NetworkPolicy"})
+        self.assertTrue(scoped, "deployer-scoped isolation must not be empty")
+
+    def test_deployer_scoped_kinds_match_the_rendered_deployer_role(self) -> None:
+        """Every kind a confirmed deploy applies must be in the deployer Role."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            full = self.manifests(Path(directory))
+            scoped = self.manifests(Path(directory + "/second"), deployer_scoped=True)
+        role = next(
+            item for item in full
+            if item["kind"] == "Role" and item["metadata"]["name"] == "oab-control-deployer"
+        )
+        granted = {resource for rule in role["rules"] for resource in rule["resources"]}
+        plural = {"ServiceAccount": "serviceaccounts", "NetworkPolicy": "networkpolicies"}
+        for item in scoped:
+            self.assertIn(plural[item["kind"]], granted, f"deployer cannot apply {item['kind']}")
+
+
+class HelmReleaseDriverTests(unittest.TestCase):
+    """Helm must not need the Secret access the deployer identity is denied."""
+
+    def test_rendered_deployer_role_grants_no_secret_access(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            normalized, diagnostics = validate_catalog(catalog(root))
+            self.assertEqual(diagnostics, [])
+            assert normalized is not None
+            manifests = render_k8s_manifests(normalized, namespace="oab-agents")
+        role = next(
+            item for item in manifests
+            if item["kind"] == "Role" and item["metadata"]["name"] == "oab-control-deployer"
+        )
+        granted = {resource for rule in role["rules"] for resource in rule["resources"]}
+        self.assertNotIn("secrets", granted)
+        # ConfigMaps are the fallback release store, so they must stay granted.
+        self.assertIn("configmaps", granted)
+
+    def test_helm_apply_uses_configmap_release_driver(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_run(command, **kwargs):
+            captured["command"] = command
+            captured["env"] = kwargs["env"]
+            return subprocess.CompletedProcess(command, 0, stdout="deployed", stderr="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            chart = root / "chart"
+            chart.mkdir()
+            values = root / "values.yaml"
+            values.write_text("{}\n", encoding="utf-8")
+            with patch("oab_control.operations.subprocess.run", fake_run):
+                _helm_apply(chart, values, "oab-agents", "oab-agents", kubeconfig="/tmp/deployer.kubeconfig")
+
+        self.assertEqual(captured["env"]["HELM_DRIVER"], "configmap")
+        self.assertEqual(captured["env"]["KUBECONFIG"], "/tmp/deployer.kubeconfig")
+        self.assertNotIn("--create-namespace", captured["command"])
 
 
 if __name__ == "__main__":

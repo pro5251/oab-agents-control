@@ -1,0 +1,168 @@
+# ============================================================================
+# oab-agents-control 正式 catalog
+#
+# ⚠️  下列 Discord ID 目前是「格式合法的佔位值」，不是真實的 Discord snowflake。
+#     驗證器只檢查格式（17–20 位數字），無法分辨真假。
+#     在 Discord 真的要能運作之前，必須換成真實 ID：
+#       - bot_user_id      → Discord 開發者後台的 Application ID
+#       - entry_channel_id → leader 的入口頻道 ID
+#       - work_channel_id  → 每個 worker 的私有頻道 ID
+#       - allowed_users    → 你自己的 Discord user ID
+#     取得方式：Discord 設定 → 進階 → 開啟「開發者模式」→ 右鍵複製 ID
+#
+# 佔位值一律以 9000... 開頭，方便用 grep 找出來全部替換。
+# ============================================================================
+version: 1
+
+defaults:
+  # 來源 repo openab-council-relay 的預設分支是 main，不是 develop
+  base_branch: origin/main
+  human_access: deny
+  bot_message_mode: mentions
+
+agents:
+
+  # --------------------------------------------------------------------------
+  # leader：唯一能寫入任務紀錄的身分；只讀 workspace
+  # --------------------------------------------------------------------------
+  leader:
+    role: leader
+    runtime:
+      # -native 變體內建的 ACP agent（image 的 OPENAB_AGENT_COMMAND 亦為此值）
+      command: openab-agent
+      args: []
+      model: model-leader
+      image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    discord:
+      bot_secret_ref: discord-leader/token
+      bot_user_id: "900000000000000001"
+      entry_channel_id: "900000000000001001"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: ["900000000000002001"]
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      # leader 必須信任「所有 worker」的 bot ID
+      trusted_bot_ids:
+        - "900000000000000002"
+        - "900000000000000003"
+        - "900000000000000004"
+    worktree:
+      path: /home/nickhuang23/oab-agent-worktrees/leader
+      container_mount_path: /workspaces/leader
+      collection_roots: [/home/nickhuang23/repositories]
+    repository_grants:
+      - repository: /home/nickhuang23/repositories/openab-council-relay
+        checkout_subpath: openab-council-relay
+        access: read
+    delivery:
+      gitlab_identity_ref: gitlab-bootstrap
+    egress_grants: [discord, model-provider]
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+
+  # --------------------------------------------------------------------------
+  # researcher：只讀 workspace
+  # --------------------------------------------------------------------------
+  researcher:
+    role: researcher
+    runtime:
+      command: openab-agent
+      args: []
+      model: model-researcher
+      image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    discord:
+      bot_secret_ref: discord-researcher/token
+      bot_user_id: "900000000000000002"
+      work_channel_id: "900000000000001002"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: []
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["900000000000000001"]
+    worktree:
+      path: /home/nickhuang23/oab-agent-worktrees/researcher
+      container_mount_path: /workspaces/researcher
+      collection_roots: [/home/nickhuang23/repositories]
+    repository_grants:
+      - repository: /home/nickhuang23/repositories/openab-council-relay
+        checkout_subpath: openab-council-relay
+        access: read
+    delivery:
+      gitlab_identity_ref: gitlab-bootstrap
+    egress_grants: [discord, model-provider]
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+
+  # --------------------------------------------------------------------------
+  # developer：唯一擁有 write grant 的 agent，程式任務只能派給它
+  # --------------------------------------------------------------------------
+  developer:
+    role: developer
+    runtime:
+      command: openab-agent
+      args: []
+      model: model-developer
+      image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    discord:
+      bot_secret_ref: discord-developer/token
+      bot_user_id: "900000000000000003"
+      work_channel_id: "900000000000001003"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: []
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["900000000000000001"]
+    worktree:
+      path: /home/nickhuang23/oab-agent-worktrees/developer
+      container_mount_path: /workspaces/developer
+      collection_roots: [/home/nickhuang23/repositories]
+    repository_grants:
+      - repository: /home/nickhuang23/repositories/openab-council-relay
+        checkout_subpath: openab-council-relay
+        access: write
+    delivery:
+      gitlab_identity_ref: gitlab-bootstrap
+    egress_grants: [discord, model-provider, package-registry]
+    resources:
+      requests: {cpu: 200m, memory: 512Mi}
+      limits: {cpu: "2", memory: 2Gi}
+
+  # --------------------------------------------------------------------------
+  # reviewer：只讀 workspace
+  # --------------------------------------------------------------------------
+  reviewer:
+    role: reviewer
+    runtime:
+      command: openab-agent
+      args: []
+      model: model-reviewer
+      image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    discord:
+      bot_secret_ref: discord-reviewer/token
+      bot_user_id: "900000000000000004"
+      work_channel_id: "900000000000001004"
+      allow_all_channels: false
+      allow_all_users: false
+      allowed_users: []
+      allow_bot_messages: mentions
+      allow_user_messages: multibot-mentions
+      trusted_bot_ids: ["900000000000000001"]
+    worktree:
+      path: /home/nickhuang23/oab-agent-worktrees/reviewer
+      container_mount_path: /workspaces/reviewer
+      collection_roots: [/home/nickhuang23/repositories]
+    repository_grants:
+      - repository: /home/nickhuang23/repositories/openab-council-relay
+        checkout_subpath: openab-council-relay
+        access: read
+    delivery:
+      gitlab_identity_ref: gitlab-bootstrap
+    egress_grants: [discord, model-provider]
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}

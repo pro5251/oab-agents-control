@@ -1,0 +1,28 @@
+{
+  "task_id": "task-001",
+  "kind": "code",
+  "goal": "熟悉 openab-council-relay 的任務派工流程，並整理其 bounded execution policy 的現況。",
+  "scope": "僅可修改 /home/nickhuang23/repositories/openab-council-relay 的 checkout；不得擴大 repository grant。",
+  "canonical_sources": [
+    "docs/"
+  ],
+  "agent_id": "developer",
+  "repository": "/home/nickhuang23/repositories/openab-council-relay",
+  "checkout_subpath": "openab-council-relay",
+  "worktree_path": "/home/nickhuang23/oab-agent-worktrees/developer",
+  "container_mount_path": "/workspaces/developer/openab-council-relay",
+  "branch": "task/task-001",
+  "base_branch": "origin/main",
+  "delivery_owner": "developer",
+  "gitlab_identity_ref": "gitlab-bootstrap",
+  "tests": [
+    "python3 -m unittest"
+  ],
+  "completion_marker": "必要測試、獨立 review 與 CI 均通過。",
+  "checkpoint": "回報變更、測試結果與風險。",
+  "deadline": "2026-12-31T12:00:00Z",
+  "reply_to": "900000000000001003",
+  "commit_authorized": true,
+  "push_authorized": true,
+  "mr_authorized": true
+}

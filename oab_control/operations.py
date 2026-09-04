@@ -196,7 +196,13 @@ class ControlOperations:
         values_path = snapshot / "openab-values.yaml"
         _atomic_text(values_path, prepared.values_yaml)
         k8s_path = snapshot / "k8s-isolation.yaml"
-        _atomic_text(k8s_path, render_k8s_yaml(prepared.catalog, namespace=self.namespace))
+        _atomic_text(
+            k8s_path,
+            # Namespace and RBAC are bootstrap-only: the deployer identity has
+            # no permission for them, so a confirmed apply must render only the
+            # subset it is actually scoped to manage.
+            render_k8s_yaml(prepared.catalog, namespace=self.namespace, deployer_scoped=True),
+        )
         result: dict[str, Any] = {
             "namespace": self.namespace,
             "snapshot": str(snapshot),
@@ -417,7 +423,13 @@ class ControlOperations:
         values_path = snapshot / "rollback-openab-values.yaml"
         _atomic_text(values_path, prepared.values_yaml)
         k8s_path = snapshot / "rollback-k8s-isolation.yaml"
-        _atomic_text(k8s_path, render_k8s_yaml(prepared.catalog, namespace=self.namespace))
+        _atomic_text(
+            k8s_path,
+            # Namespace and RBAC are bootstrap-only: the deployer identity has
+            # no permission for them, so a confirmed apply must render only the
+            # subset it is actually scoped to manage.
+            render_k8s_yaml(prepared.catalog, namespace=self.namespace, deployer_scoped=True),
+        )
         result["k8s_apply_output"] = (k8s_apply or (lambda manifest: _kubectl_apply(manifest, kubeconfig=deployer_kubeconfig)))(k8s_path)
         result["apply_output"] = apply_result(chart, values_path, release, self.namespace)
         # Keep the active catalog unchanged until both desired-state applies
@@ -470,6 +482,13 @@ class ControlOperations:
 
 
 def _helm_apply(chart: Path, values: Path, release: str, namespace: str, *, kubeconfig: str | None = None) -> str:
+    # Helm 3 stores release state as Secrets by default, but the rendered
+    # ``oab-control-deployer`` Role deliberately has no secrets permission at
+    # all -- reading Secret values is reserved for the separate materializer
+    # identity.  Granting the deployer secrets access to satisfy Helm would
+    # hand it every Secret in the namespace, so the release driver is switched
+    # to ConfigMaps, which the deployer Role already covers.
+    environment = _control_env(kubeconfig=kubeconfig) | {"HELM_DRIVER": "configmap"}
     try:
         process = subprocess.run(
             # Namespace creation is rendered/applied by the namespace-scoped
@@ -480,7 +499,7 @@ def _helm_apply(chart: Path, values: Path, release: str, namespace: str, *, kube
             capture_output=True,
             text=True,
             timeout=300,
-            env=_control_env(kubeconfig=kubeconfig),
+            env=environment,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         detail = getattr(exc, "stderr", "") or str(exc)

@@ -123,6 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
     materialize.add_argument("agent_id")
     materialize.add_argument("task_id")
     materialize.add_argument("--remotes-file", required=True, help="JSON map of exact repository path to delivery remote")
+    materialize.add_argument(
+        "--allow-local-remotes",
+        action="store_true",
+        help="accept file:// delivery remotes; for local bootstrap before a GitLab remote exists",
+    )
     materialize.add_argument("--branch")
     materialize.add_argument("--no-path-check", action="store_true")
     materialize.add_argument("--check-git", action="store_true")
@@ -136,6 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup.add_argument("agent_id")
     cleanup.add_argument("task_id")
     cleanup.add_argument("--remotes-file", required=True, help="JSON map of exact repository path to delivery remote")
+    cleanup.add_argument(
+        "--allow-local-remotes",
+        action="store_true",
+        help="accept file:// delivery remotes; for local bootstrap before a GitLab remote exists",
+    )
     cleanup.add_argument("--tasks-dir", default=".oab-control/tasks")
     cleanup.add_argument("--registry-json")
     cleanup.add_argument("--registry-markdown")
@@ -260,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
                         raise WorktreeError(str(exc)) from exc
                     if args.branch and args.branch != task.branch:
                         raise WorktreeError("requested branch differs from the task envelope")
-                checkouts = WorktreeManager(remotes=remotes).materialize(
+                checkouts = WorktreeManager(remotes=remotes, allow_local_remotes=args.allow_local_remotes).materialize(
                     agent_id=args.agent_id,
                     agent=catalog["agents"][args.agent_id],
                     task_id=args.task_id,
@@ -334,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
                             created=False,
                         )
                     )
-                WorktreeManager(remotes=remotes).cleanup_task(checkouts=checkouts, confirmed=args.yes)
+                WorktreeManager(remotes=remotes, allow_local_remotes=args.allow_local_remotes).cleanup_task(checkouts=checkouts, confirmed=args.yes)
                 if args.registry_json:
                     registry_path = args.registry_markdown or str(args.registry_json) + ".md"
                     WorkspaceRegistry(args.registry_json, registry_path).clear_task(f"workspace-{args.agent_id}")

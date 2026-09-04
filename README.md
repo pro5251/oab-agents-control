@@ -155,6 +155,7 @@ PYTHONPATH=. python3 -m oab_control.cli validate \
 | --- | --- | --- |
 | [docs/架構說明.md](docs/架構說明.md) | 分層設計、安全邊界與取捨理由 | 想理解「為什麼這樣設計」 |
 | [docs/安裝與快速開始.md](docs/安裝與快速開始.md) | Python 安裝、測試、離線驗證指令 | 第一次使用 |
+| [docs/本機部署實作.md](docs/本機部署實作.md) | 本機真實配置與可直接執行的部署步驟 | **要在這台機器上部署** |
 | [docs/操作手冊.md](docs/操作手冊.md) | bootstrap → 任務 → 部署 → 復原的完整流程 | 實際操作時 |
 | [docs/部署前置資料清單.md](docs/部署前置資料清單.md) | 啟用真實環境前需提供的資料與權限分界 | 準備上線前 |
 | [docs/git-遠端與憑證配置手冊.md](docs/git-遠端與憑證配置手冊.md) | SSH／PAT 設定與 GitHub 推送 | 設定版控時 |

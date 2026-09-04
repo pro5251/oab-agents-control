@@ -39,6 +39,13 @@ def agent_role_binding_name(agent_id: str) -> str:
     return f"{agent_service_account_name(agent_id)}-binding"[:63].rstrip("-")
 
 
+#: Resources that only a cluster-bootstrap identity may create.  The
+#: namespace-scoped ``oab-control-deployer`` Role deliberately grants no
+#: namespace or RBAC access, so a confirmed deploy must not try to re-apply
+#: these -- they are installed once, out of band, before the first deploy.
+BOOTSTRAP_ONLY_KINDS = frozenset({"Namespace", "Role", "RoleBinding"})
+
+
 def render_k8s_manifests(
     catalog: Mapping[str, Any],
     *,
@@ -46,8 +53,13 @@ def render_k8s_manifests(
     proxy_namespace: str = "oab-egress",
     proxy_selector: Mapping[str, str] | None = None,
     proxy_port: int = 8080,
+    deployer_scoped: bool = False,
 ) -> list[dict[str, Any]]:
-    """Render one non-privileged SA per agent and namespace isolation policy."""
+    """Render one non-privileged SA per agent and namespace isolation policy.
+
+    With ``deployer_scoped`` the bootstrap-only resources are omitted, leaving
+    exactly what the namespace-scoped deployer identity is permitted to apply.
+    """
 
     _safe_name(namespace)
     _safe_name(proxy_namespace)
@@ -207,6 +219,8 @@ def render_k8s_manifests(
             },
         }
     )
+    if deployer_scoped:
+        return [manifest for manifest in manifests if manifest["kind"] not in BOOTSTRAP_ONLY_KINDS]
     return manifests
 
 

@@ -6,3 +6,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# 控制平面的執行期狀態：任務紀錄、workspace registry、部署 snapshot。
+# 這些是本機運作產物，不是原始碼。
+.oab-control/

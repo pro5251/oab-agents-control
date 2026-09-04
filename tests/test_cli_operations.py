@@ -4,6 +4,7 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -12,6 +13,7 @@ import yaml
 from oab_control.cli import main
 from test_catalog import catalog
 from test_tasks import task
+from test_worktree import repository_fixture
 
 
 class CliOperationTests(unittest.TestCase):
@@ -124,6 +126,53 @@ class CliOperationTests(unittest.TestCase):
             result = json.loads(output.getvalue())
         self.assertEqual(exit_code, 1)
         self.assertIn("developer agent", result["error"])
+
+    def _local_remote_fixture(self, root: Path) -> tuple[Path, Path, Path]:
+        """A validatable catalog whose grant points at a real repo with a file:// remote."""
+
+        document = catalog(root)
+        shutil.rmtree(root / "repositories" / "team-a" / "service-x")
+        source, remote = repository_fixture(root)
+        catalog_path = root / "catalog.yaml"
+        catalog_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        remotes_path = root / "remotes.json"
+        remotes_path.write_text(json.dumps({str(source): remote.as_uri()}), encoding="utf-8")
+        return catalog_path, remotes_path, source
+
+    def test_materialize_rejects_local_remote_without_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_path, remotes_path, _ = self._local_remote_fixture(root)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = main([
+                    "worktree-materialize", str(catalog_path), "developer", "task-001",
+                    "--remotes-file", str(remotes_path), "--tasks-dir", "", "--json",
+                ])
+            result = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertIn("local path", result["error"])
+
+    def test_materialize_accepts_local_remote_when_explicitly_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_path, remotes_path, source = self._local_remote_fixture(root)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = main([
+                    "worktree-materialize", str(catalog_path), "developer", "task-001",
+                    "--remotes-file", str(remotes_path), "--allow-local-remotes",
+                    "--tasks-dir", "", "--json",
+                ])
+            result = json.loads(output.getvalue())
+            checkout = result["checkouts"][0]
+            self.assertTrue(checkout["created"])
+            self.assertTrue(checkout["origin"].startswith("file://"))
+            self.assertTrue((Path(checkout["path"]) / ".git").is_dir())
+            # The opt-in must not weaken worktree isolation: the checkout is a
+            # full clone, never the shared source collection directory.
+            self.assertNotEqual(Path(checkout["path"]).resolve(), source.resolve())
+        self.assertEqual(exit_code, 0)
 
 
 if __name__ == "__main__":
