@@ -1,0 +1,116 @@
+version: '3'
+
+vars:
+  NAMESPACE: '{{default "oab-agents" .NAMESPACE}}'
+  CHART: '{{default "../openab/charts/openab" .CHART}}'
+  BACKUP_OUTPUT: '{{default ".oab-control/backups" .BACKUP_OUTPUT}}'
+  SNAPSHOT_DIR: '{{default ".oab-control/snapshots" .SNAPSHOT_DIR}}'
+
+tasks:
+  kubeconfig:check:
+    internal: true
+    preconditions:
+      - sh: '[ -n "${KUBECONFIG:-}" ] && [ -f "$KUBECONFIG" ]'
+        msg: 'Set KUBECONFIG to an existing kubeconfig, for example: export KUBECONFIG=/home/nickhuang23/.kube/oab-admin.kubeconfig'
+    cmds:
+      - 'true'
+
+  pods:
+    desc: Show the agent Pods and their readiness.
+    deps: [kubeconfig:check]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' get pods
+
+  images:
+    desc: Show each role Deployment's desired image.
+    deps: [kubeconfig:check]
+    cmds:
+      - >-
+        kubectl -n '{{.NAMESPACE}}' get deployment leader researcher developer reviewer
+        -o 'custom-columns=AGENT:.metadata.name,IMAGE:.spec.template.spec.containers[0].image'
+
+  logs:
+    desc: Show recent logs for one agent (task logs AGENT=leader).
+    deps: [kubeconfig:check]
+    requires:
+      vars: [AGENT]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' logs deployment/'{{.AGENT}}' --tail='{{default "100" .TAIL}}'
+
+  logs:follow:
+    desc: Follow logs for one agent (task logs:follow AGENT=leader).
+    deps: [kubeconfig:check]
+    requires:
+      vars: [AGENT]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' logs -f deployment/'{{.AGENT}}'
+
+  logs:previous:
+    desc: Show the previous container logs for one agent (task logs:previous AGENT=leader).
+    deps: [kubeconfig:check]
+    requires:
+      vars: [AGENT]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' logs deployment/'{{.AGENT}}' --previous --tail='{{default "100" .TAIL}}'
+
+  auth:
+    desc: Run the image-provided OpenAB auth command for one agent (task auth AGENT=leader).
+    deps: [kubeconfig:check]
+    requires:
+      vars: [AGENT]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' exec -it deployment/'{{.AGENT}}' -- sh -c '$OPENAB_AGENT_AUTH_COMMAND'
+
+  restart:
+    desc: Restart and wait for one agent (task restart AGENT=leader).
+    deps: [kubeconfig:check]
+    requires:
+      vars: [AGENT]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' rollout restart deployment/'{{.AGENT}}'
+      - kubectl -n '{{.NAMESPACE}}' rollout status deployment/'{{.AGENT}}'
+
+  restart:all:
+    desc: Restart all agents, then wait for each rollout.
+    deps: [kubeconfig:check]
+    cmds:
+      - kubectl -n '{{.NAMESPACE}}' rollout restart deployment/leader deployment/researcher deployment/developer deployment/reviewer
+      - for agent in leader researcher developer reviewer; do kubectl -n '{{.NAMESPACE}}' rollout status "deployment/$agent"; done
+
+  preflight:
+    desc: Run the read-only deployment preflight.
+    cmds:
+      - PYTHONPATH=. python3 -m oab_control.cli preflight config/environment.yaml --chart '{{.CHART}}' --json
+
+  deploy:preview:
+    desc: Preview the deployment without changing K3s.
+    cmds:
+      - PYTHONPATH=. python3 -m oab_control.cli deploy config/catalog.yaml --snapshot-dir '{{.SNAPSHOT_DIR}}' --json
+
+  backup:
+    desc: Export PVC state and create a backup (requires BACKUP_ATTESTATION).
+    requires:
+      vars: [BACKUP_ATTESTATION]
+    cmds:
+      - bash scripts/export-k3s-state.sh
+      - >-
+        PYTHONPATH=. python3 -m oab_control.cli backup config/backup-sources.json
+        --output '{{.BACKUP_OUTPUT}}' --attestation '{{.BACKUP_ATTESTATION}}' --yes --json
+
+  deploy:
+    desc: Confirmed deploy; requires CONFIRM=yes and BACKUP_ATTESTATION.
+    requires:
+      vars: [CONFIRM, BACKUP_ATTESTATION]
+    cmds:
+      - |
+        test '{{.CONFIRM}}' = 'yes' || {
+          echo 'Refusing deploy: use CONFIRM=yes.' >&2
+          exit 2
+        }
+      - bash scripts/export-k3s-state.sh
+      - >-
+        PYTHONPATH=. python3 -m oab_control.cli deploy config/catalog.yaml
+        --environment config/environment.yaml --chart '{{.CHART}}'
+        --secrets-file config/secrets.yaml --backup-sources config/backup-sources.json
+        --backup-output '{{.BACKUP_OUTPUT}}' --backup-attestation '{{.BACKUP_ATTESTATION}}'
+        --snapshot-dir '{{.SNAPSHOT_DIR}}' --yes --json

@@ -12,9 +12,35 @@
   ],
   "home": "/home/YOUR_USER",
   "mirror_root": "/home/YOUR_USER/git-remotes",
-  "image": "ghcr.io/openabdev/openab:0.9.0-beta.9-native",
-  "command": "openab-agent",
-  "working_dir": "/home/agent",
+  "image": "ghcr.io/openabdev/openab:0.10.0-beta.3-codex",
+  "command": "codex-acp",
+  "working_dir": "/home/node",
+  "runtimes": {
+    "leader": {
+      "command": "codex-acp",
+      "args": [],
+      "image": "ghcr.io/openabdev/openab:0.10.0-beta.3-codex",
+      "working_dir": "/home/node"
+    },
+    "researcher": {
+      "command": "copilot",
+      "args": ["--acp", "--stdio"],
+      "image": "ghcr.io/openabdev/openab:0.10.0-beta.3-copilot",
+      "working_dir": "/home/node"
+    },
+    "developer": {
+      "command": "codex-acp",
+      "args": [],
+      "image": "ghcr.io/openabdev/openab:0.10.0-beta.3-codex",
+      "working_dir": "/home/node"
+    },
+    "reviewer": {
+      "command": "copilot",
+      "args": ["--acp", "--stdio"],
+      "image": "ghcr.io/openabdev/openab:0.10.0-beta.3-copilot",
+      "working_dir": "/home/node"
+    }
+  },
   "default_base_branch": "origin/develop",
   "gitlab_identity_ref": "gitlab-bootstrap",
   "bots": {

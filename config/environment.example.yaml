@@ -49,22 +49,22 @@ profiles:
     role: leader
     bot_secret_ref: discord-leader/token
     model: model-leader
-    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    image: ghcr.io/openabdev/openab:0.10.0-beta.3-codex
   researcher:
     role: researcher
     bot_secret_ref: discord-researcher/token
     model: model-researcher
-    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    image: ghcr.io/openabdev/openab:0.10.0-beta.3-copilot
   developer:
     role: developer
     bot_secret_ref: discord-developer/token
     model: model-developer
-    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    image: ghcr.io/openabdev/openab:0.10.0-beta.3-codex
   reviewer:
     role: reviewer
     bot_secret_ref: discord-reviewer/token
     model: model-reviewer
-    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    image: ghcr.io/openabdev/openab:0.10.0-beta.3-copilot
 
 k3s:
   context: default

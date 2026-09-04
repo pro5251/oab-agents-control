@@ -46,6 +46,17 @@ def load(path: str) -> dict:
         raise SystemExit(f"{path} 的 bots 缺少角色：{', '.join(missing)}")
     if not document["grants"]:
         raise SystemExit(f"{path} 的 grants 是空的")
+    runtimes = document.get("runtimes", {})
+    if not isinstance(runtimes, dict):
+        raise SystemExit(f"{path} 的 runtimes 必須是物件")
+    unknown_roles = sorted(set(runtimes) - set(ROLES))
+    if unknown_roles:
+        raise SystemExit(f"{path} 的 runtimes 含未知角色：{', '.join(unknown_roles)}")
+    for role, runtime in runtimes.items():
+        if not isinstance(runtime, dict):
+            raise SystemExit(f"{path} 的 runtimes.{role} 必須是物件")
+        if "args" in runtime and not isinstance(runtime["args"], list):
+            raise SystemExit(f"{path} 的 runtimes.{role}.args 必須是陣列")
     return document
 
 
@@ -65,6 +76,18 @@ def collection_roots(grants: list[dict]) -> list[str]:
         if grant["root"] not in seen:
             seen.append(grant["root"])
     return seen
+
+
+def runtime_for(cfg: dict, role: str) -> dict:
+    """Resolve a role-specific runtime, falling back to the legacy globals."""
+
+    override = cfg.get("runtimes", {}).get(role, {})
+    return {
+        "command": override.get("command", cfg.get("command", "openab-agent")),
+        "args": override.get("args", []),
+        "image": override.get("image", cfg["image"]),
+        "working_dir": override.get("working_dir", cfg.get("working_dir", "/home/agent")),
+    }
 
 
 def emit_catalog(cfg: dict) -> str:
@@ -100,6 +123,7 @@ def emit_catalog(cfg: dict) -> str:
 
     for role in ROLES:
         res = resources.get(role, default_res)
+        runtime = runtime_for(cfg, role)
         access = "write" if role in writers else "read"
         trusted = [bots[r] for r in ROLES if r != "leader"] if role == "leader" else [bots["leader"]]
 
@@ -107,11 +131,11 @@ def emit_catalog(cfg: dict) -> str:
         add(f"  {role}:")
         add(f"    role: {role}")
         add("    runtime:")
-        add(f"      command: {cfg.get('command', 'openab-agent')}")
-        add("      args: []")
+        add(f"      command: {runtime['command']}")
+        add(f"      args: {json.dumps(runtime['args'], ensure_ascii=False)}")
         add(f"      model: {cfg.get('models', {}).get(role, f'model-{role}')}")
-        add(f"      image: {cfg['image']}")
-        add(f"      working_dir: {cfg.get('working_dir', '/home/agent')}")
+        add(f"      image: {runtime['image']}")
+        add(f"      working_dir: {runtime['working_dir']}")
         add("    discord:")
         add(f"      bot_secret_ref: discord-{role}/token")
         add(f'      bot_user_id: "{bots[role]}"')

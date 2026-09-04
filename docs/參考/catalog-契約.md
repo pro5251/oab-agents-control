@@ -82,6 +82,8 @@ OpenAB 的發佈映像檔依內建的 ACP CLI 分成不同變體，**使用者�
 | 變體 | user | uid | home | `command` 應填 |
 | --- | --- | --- | --- | --- |
 | `-native` | `agent` | 1000 | `/home/agent` | `openab-agent` |
+| `-codex` | `node` | 1000 | `/home/node` | `codex-acp` |
+| `-copilot` | `node` | 1000 | `/home/node` | `copilot --acp --stdio` |
 | `latest`（kiro） | `agent` | 1000 | `/home/agent` | `kiro-cli` |
 | `-claude` | `node` | 1000 | `/home/node` | `claude` |
 | `-gemini` | `node` | 1000 | `/home/node` | `gemini` |
@@ -100,19 +102,19 @@ chart 會把 runtime PVC 掛在 `working_dir`。若它與 image 的實際 home �
 ```yaml
 developer:
   runtime:
-    command: claude
+    command: codex-acp
     args: []
-    model: claude-sonnet-4-5
-    image: ghcr.io/openabdev/openab:0.9.0-beta.9-claude
+    model: model-developer
+    image: ghcr.io/openabdev/openab:0.10.0-beta.3-codex
     working_dir: /home/node        # 這個變體以 node 身分執行
 
 reviewer:
   runtime:
-    command: openab-agent
-    args: []
+    command: copilot
+    args: ["--acp", "--stdio"]
     model: model-reviewer
-    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
-    # 省略 working_dir，沿用預設 /home/agent
+    image: ghcr.io/openabdev/openab:0.10.0-beta.3-copilot
+    working_dir: /home/node
 ```
 
 確認某個變體的實際 home：

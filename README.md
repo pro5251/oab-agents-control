@@ -138,7 +138,7 @@ flowchart TD
 ## 快速開始
 
 ```bash
-PYTHONPATH=. python3 -m unittest discover -s tests -v          # 115 項測試
+PYTHONPATH=. python3 -m unittest discover -s tests -v          # 133 項測試
 PYTHONPATH=. python3 -m oab_control.cli validate \
   examples/catalog.example.yaml --no-path-check \
   --secrets-file config/reference-manifest.example.yaml --json
@@ -146,6 +146,157 @@ PYTHONPATH=. python3 -m oab_control.cli validate \
 
 安裝步驟、Windows PowerShell 語法差異與更多離線驗證指令，
 請見 **[docs/安裝與快速開始.md](docs/安裝與快速開始.md)**。
+
+---
+
+## 常用操作（go-task）
+
+本專案提供 [Taskfile.yml](Taskfile.yml) 作為常用操作的入口。先安裝 go-task v3，
+並設定具相應權限的 kubeconfig；Taskfile 不保存 kubeconfig 或 Secret。
+
+WSL／Ubuntu 可安裝到使用者目錄，不需要 `sudo`：
+
+```bash
+mkdir -p ~/.local/bin
+
+sh -c "$(curl --location https://taskfile.dev/install.sh)" -- \
+  -d -b ~/.local/bin
+
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+task --version
+```
+
+進入本專案後，可列出所有可用 task：
+
+```bash
+task --list
+```
+
+常用指令：
+
+```bash
+export KUBECONFIG=/home/nickhuang23/.kube/oab-admin.kubeconfig
+
+task pods
+task images
+task logs AGENT=leader
+task logs:follow AGENT=leader
+task auth AGENT=leader       # 逐一執行，完成瀏覽器登入後再處理下一個
+task restart AGENT=leader
+task restart:all
+```
+
+若出現 `localhost:8080 was refused`，表示目前 shell 沒有讀到 kubeconfig；重新執行上方
+`export KUBECONFIG=...` 後再跑 task。Taskfile 也會在 kubeconfig 缺失或檔案不存在時先停止。
+
+部署預覽不會改動 K3s：
+
+```bash
+task preflight
+task deploy:preview
+```
+
+正式部署仍要求明確確認與 backup attestation：
+
+```bash
+export KUBECONFIG=/home/nickhuang23/.kube/oab-control-deployer.kubeconfig
+export OAB_SECRET_MATERIALIZER_KUBECONFIG=/home/nickhuang23/.kube/oab-control-secret-materializer.kubeconfig
+
+task deploy CONFIRM=yes BACKUP_ATTESTATION='local project-directory bootstrap backup'
+```
+
+---
+
+## Agent authentication（Codex / Copilot）
+
+OpenAB 的每個 image 都會提供正確的
+`OPENAB_AGENT_AUTH_COMMAND`。請在 **Pod 內** 展開它；外層必須使用
+單引號，避免本機 shell 將變數提前展開成空字串。
+
+本機部署的 namespace 是 `oab-agents`，Deployment 名稱就是角色名稱。請一次只登入
+一個 agent，完成後再進行下一個：
+
+```bash
+export KUBECONFIG=/home/nickhuang23/.kube/oab-admin.kubeconfig
+
+# leader、developer：Codex（image 內實際執行 codex login --device-auth）
+kubectl -n oab-agents exec -it deployment/leader -- \
+  sh -c '$OPENAB_AGENT_AUTH_COMMAND'
+kubectl -n oab-agents exec -it deployment/developer -- \
+  sh -c '$OPENAB_AGENT_AUTH_COMMAND'
+
+# researcher、reviewer：GitHub Copilot CLI（image 內實際執行 copilot login）
+kubectl -n oab-agents exec -it deployment/researcher -- \
+  sh -c '$OPENAB_AGENT_AUTH_COMMAND'
+kubectl -n oab-agents exec -it deployment/reviewer -- \
+  sh -c '$OPENAB_AGENT_AUTH_COMMAND'
+```
+
+完成某個 agent 的 device/browser flow 後，依 OpenAB 建議重啟並等待該 agent：
+
+```bash
+kubectl -n oab-agents rollout restart deployment/<agent>
+kubectl -n oab-agents rollout status deployment/<agent>
+```
+
+例如只重啟 `leader`：
+
+```bash
+kubectl -n oab-agents rollout restart deployment/leader
+kubectl -n oab-agents rollout status deployment/leader
+```
+
+若要依序重啟並等待四個 agent：
+
+```bash
+for agent in leader researcher developer reviewer; do
+  kubectl -n oab-agents rollout restart "deployment/$agent"
+  kubectl -n oab-agents rollout status "deployment/$agent"
+done
+```
+
+### 檢查目前 image
+
+查看四個 Deployment 的期望 image：
+
+```bash
+kubectl -n oab-agents get deployment leader researcher developer reviewer \
+  -o 'custom-columns=AGENT:.metadata.name,IMAGE:.spec.template.spec.containers[0].image'
+```
+
+查看目前實際 Pod 使用的 image 與 readiness：
+
+```bash
+kubectl -n oab-agents get pods \
+  -o 'custom-columns=POD:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready'
+```
+
+`Deployment` 是下一次/目前 rollout 的期望 image；`Pod` 才是目前實際執行的 image。
+
+### 查看單一 bot logs
+
+查看 `leader` 最近 100 行：
+
+```bash
+kubectl -n oab-agents logs deployment/leader --tail=100
+```
+
+持續追蹤 `leader`：
+
+```bash
+kubectl -n oab-agents logs -f deployment/leader
+```
+
+將 `leader` 改為 `researcher`、`developer` 或 `reviewer` 即可。若 bot 剛重啟，
+要查看前一個 container 的輸出：
+
+```bash
+kubectl -n oab-agents logs deployment/leader --previous --tail=100
+```
+
+認證資料會保存在該 agent 自己的 PVC：Codex 在 `/home/node/.codex/`，Copilot 在
+`/home/node/.copilot/`。四個 agent 的認證互相獨立，不能共用。
 
 ---
 
@@ -158,6 +309,7 @@ PYTHONPATH=. python3 -m oab_control.cli validate \
 | [docs/adr/](docs/adr/) | 難以逆轉的設計決策 | 想知道「為什麼不用另一種做法」 |
 | [docs/架構說明.md](docs/架構說明.md) | 分層設計、安全邊界與取捨理由 | 想理解「為什麼這樣設計」 |
 | [docs/安裝與快速開始.md](docs/安裝與快速開始.md) | Python 安裝、測試、離線驗證指令 | 第一次使用 |
+| [docs/agent-憑證授權.md](docs/agent-憑證授權.md) | 每個 image 變體的 LLM 授權方式 | agent 無法思考時 |
 | [docs/本機部署實作.md](docs/本機部署實作.md) | 本機真實配置與可直接執行的部署步驟 | **要在這台機器上部署** |
 | [docs/操作手冊.md](docs/操作手冊.md) | bootstrap → 任務 → 部署 → 復原的完整流程 | 實際操作時 |
 | [docs/部署前置資料清單.md](docs/部署前置資料清單.md) | 啟用真實環境前需提供的資料與權限分界 | 準備上線前 |
