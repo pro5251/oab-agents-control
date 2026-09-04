@@ -4,6 +4,10 @@
 reference 的用途。Private key、PAT 與其他憑證不可提交、貼到聊天或存入 catalog、
 `config/secrets.yaml`、K3s Secret。
 
+> 這裡談的是**本 repository 自身的版控憑證**。
+> Agent 交付用的 GitLab remote 與 identity 參照屬於不同概念，
+> 見 [參考/catalog-契約.md](參考/catalog-契約.md#delivery)。
+
 ## 選擇認證方式
 
 | 用途／remote URL | 認證方式 | 建議 |
@@ -201,3 +205,11 @@ Git 操作仍可能走 HTTPS／GCM。
 - [GitHub：產生 SSH key 並加入 ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent?platform=linux)
 - [GitHub：將 SSH key 加入帳號](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account?platform=linux&tool=webui)
 - [GitHub：測試 SSH 連線](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/testing-your-ssh-connection?platform=linux)
+
+---
+
+## 相關文件
+
+- [文件索引](README.md)
+- [部署前置資料清單.md](部署前置資料清單.md#不得納入-git-的資料) — 哪些資料不得進版控
+- [參考/catalog-契約.md](參考/catalog-契約.md#密鑰防護) — catalog 的密鑰掃描規則

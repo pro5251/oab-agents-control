@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>oab-agents-control 完整度檢查</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --ground:#f3f5f7;
+    --surface:#ffffff;
+    --surface-2:#eaeef1;
+    --ink:#17212b;
+    --ink-soft:#3d4c59;
+    --muted:#63757f;
+    --line:#d8dfe5;
+    --accent:#0f7c8b;
+    --accent-ink:#0b5a65;
+    --gate:#8f5d10;
+    --block:#9a3a3a;
+    --diagram-bg:#fbfcfd;
+    --shadow:0 1px 2px rgba(20,35,45,.04),0 10px 26px -14px rgba(20,35,45,.14);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0e151a;
+      --surface:#161f26;
+      --surface-2:#1d2830;
+      --ink:#e7edf1;
+      --ink-soft:#c1ccd4;
+      --muted:#8a9aa6;
+      --line:#2b3a44;
+      --accent:#42b3c2;
+      --accent-ink:#83d1db;
+      --gate:#d49c50;
+      --block:#db8080;
+      --diagram-bg:#eef1f3;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -16px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0e151a;
+    --surface:#161f26;
+    --surface-2:#1d2830;
+    --ink:#e7edf1;
+    --ink-soft:#c1ccd4;
+    --muted:#8a9aa6;
+    --line:#2b3a44;
+    --accent:#42b3c2;
+    --accent-ink:#83d1db;
+    --gate:#d49c50;
+    --block:#db8080;
+    --diagram-bg:#eef1f3;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -16px rgba(0,0,0,.55);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--ink-soft);
+    font-family:"IBM Plex Sans",system-ui,"PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif;
+    font-size:16px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:1200px;margin:0 auto;padding:clamp(1.5rem,4vw,3.75rem) clamp(1.15rem,4vw,3rem);}
+  .col{min-width:0}
+
+  @media (min-width:1080px){
+    .page{display:grid;grid-template-columns:186px minmax(0,780px);justify-content:center;column-gap:3.5rem;}
+    .toc{position:sticky;top:2.5rem;align-self:start;}
+  }
+
+  .toc{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.78rem;line-height:1.5;}
+  .toc p{margin:0 0 .7rem;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-size:.66rem;}
+  .toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.5rem;}
+  .toc a{color:var(--ink-soft);text-decoration:none;display:block;border-left:2px solid var(--line);padding-left:.7rem;}
+  .toc a:hover{color:var(--accent-ink);border-left-color:var(--accent);}
+  @media (max-width:1079px){.toc{display:none}}
+
+  .eyebrow{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent-ink);font-weight:500;margin:0 0 .3rem;
+  }
+
+  .masthead{border-bottom:1px solid var(--line);padding-bottom:2rem;}
+  h1{
+    font-family:"IBM Plex Sans",sans-serif;font-weight:600;
+    font-size:clamp(1.9rem,4.4vw,2.5rem);line-height:1.14;letter-spacing:-.01em;
+    color:var(--ink);margin:.4rem 0 .85rem;text-wrap:balance;
+  }
+  .lede{font-size:1.08rem;color:var(--ink-soft);max-width:56ch;margin:0;}
+  .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin:1.9rem 0 0;padding:0;}
+  .meta div{border-left:2px solid var(--accent);padding-left:.75rem;}
+  .meta dt{font-family:"IBM Plex Mono",monospace;font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);}
+  .meta dd{margin:.25rem 0 0;color:var(--ink);font-size:.92rem;}
+
+  section{margin-top:3.6rem;}
+  h2{
+    font-family:"IBM Plex Sans",sans-serif;font-weight:600;
+    font-size:1.42rem;letter-spacing:-.01em;color:var(--ink);
+    margin:.3rem 0 1rem;text-wrap:balance;
+  }
+  h3{
+    font-family:"IBM Plex Sans",sans-serif;font-weight:600;
+    font-size:1.02rem;color:var(--ink);margin:2.1rem 0 .65rem;
+  }
+  p{margin:0 0 1rem;max-width:66ch;}
+  a{color:var(--accent-ink);text-underline-offset:2px;}
+  strong,b{color:var(--ink);font-weight:600;}
+
+  code,.mono{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.86em;background:var(--surface-2);
+    padding:.1em .38em;border-radius:3px;
+  }
+
+  .verdict{
+    background:color-mix(in srgb,var(--accent) 9%,var(--surface));
+    border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));
+    border-radius:9px;padding:.95rem 1.1rem;font-size:.95rem;max-width:none;
+    color:var(--ink-soft);
+  }
+
+  .callouts{display:grid;gap:.9rem;margin:1.5rem 0 0;}
+  @media (min-width:560px){.callouts{grid-template-columns:1fr 1fr;}}
+  .principle{
+    background:var(--surface);border:1px solid var(--line);border-radius:8px;
+    padding:.9rem 1rem;font-size:.89rem;box-shadow:var(--shadow);
+  }
+  .principle b{
+    display:block;font-family:"IBM Plex Mono",monospace;font-size:.74rem;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:.3rem;
+  }
+
+  .table-wrap{overflow-x:auto;margin:1rem 0 0;border:1px solid var(--line);border-radius:9px;background:var(--surface);box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:460px;}
+  th,td{text-align:left;padding:.72rem .95rem;border-top:1px solid var(--line);vertical-align:top;}
+  thead th{
+    border-top:none;background:var(--surface-2);color:var(--ink);
+    font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:.72rem;
+    letter-spacing:.08em;text-transform:uppercase;
+  }
+  td b{color:var(--ink);}
+  tbody tr:first-child td{border-top:none;}
+
+  .chip{
+    display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.68rem;
+    letter-spacing:.03em;padding:.16rem .5rem;border-radius:999px;border:1px solid;
+    font-weight:500;white-space:nowrap;
+  }
+  .chip.mid{color:var(--gate);border-color:color-mix(in srgb,var(--gate) 45%,transparent);background:color-mix(in srgb,var(--gate) 12%,transparent);}
+  .chip.low{color:var(--muted);border-color:var(--line);background:var(--surface-2);}
+
+  .tag-list{list-style:none;padding:0;margin:1rem 0 0;display:flex;flex-direction:column;gap:.6rem;}
+  .tag-list li{
+    border-left:3px solid var(--gate);background:var(--surface);
+    padding:.7rem .95rem;border-radius:0 7px 7px 0;box-shadow:var(--shadow);font-size:.92rem;
+  }
+  .tag-list li b{font-family:"IBM Plex Mono",monospace;font-size:.82rem;}
+
+  .notes{margin:1.2rem 0 0;padding-left:1.1rem;}
+  .notes li{margin:.35rem 0;font-size:.92rem;}
+  .notes li::marker{color:var(--accent);}
+
+  .priority{padding-left:0;list-style:none;margin:1rem 0 0;counter-reset:p;display:flex;flex-direction:column;gap:.7rem;}
+  .priority li{counter-increment:p;display:flex;gap:.85rem;align-items:baseline;font-size:.93rem;}
+  .priority li::before{
+    content:counter(p);flex:none;font-family:"IBM Plex Mono",monospace;font-weight:600;
+    color:var(--accent-ink);border:1px solid var(--line);border-radius:6px;
+    min-width:1.65rem;height:1.65rem;display:inline-flex;align-items:center;justify-content:center;font-size:.78rem;
+  }
+
+  figure.diagram{
+    margin:1.9rem 0 0;background:var(--diagram-bg);border:1px solid var(--line);
+    border-radius:11px;padding:1.3rem;overflow-x:auto;
+  }
+  figure.diagram .mermaid{min-width:560px;display:flex;justify-content:center;}
+  figure.diagram figcaption{
+    margin-top:.9rem;font-family:"IBM Plex Mono",monospace;font-size:.76rem;color:#5a6b76;
+  }
+
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);font-size:.82rem;color:var(--muted);}
+  footer code{background:none;padding:0;}
+
+  a:focus-visible,.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px;}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <nav class="toc" aria-label="目錄">
+    <p>目錄</p>
+    <ol>
+      <li><a href="#purpose">01 &nbsp;用途</a></li>
+      <li><a href="#architecture">02 &nbsp;架構</a></li>
+      <li><a href="#flow">03 &nbsp;操作流程</a></li>
+      <li><a href="#assessment">04 &nbsp;完整度評估</a></li>
+    </ol>
+  </nav>
+
+  <div class="col">
+    <header class="masthead">
+      <p class="eyebrow">控制平面 · 程式碼稽核</p>
+      <h1>oab-agents-control 完整度檢查</h1>
+      <p class="lede">一套以「先驗證、再備份、後由人類確認」為核心的多 Agent 本機控制平面 CLI。整體在其設計範圍內高度完整。</p>
+      <dl class="meta">
+        <div><dt>檢查日期</dt><dd>2026-09-04</dd></div>
+        <div><dt>程式規模</dt><dd>14 模組 · 約 6,420 行</dd></div>
+        <div><dt>測試</dt><dd>90 項 · 全數通過</dd></div>
+        <div><dt>執行環境</dt><dd>Python ≥ 3.11 · 僅依賴 PyYAML</dd></div>
+      </dl>
+    </header>
+
+    <main>
+      <section id="purpose">
+        <p class="eyebrow">01 · 用途</p>
+        <h2>這個專案在做什麼</h2>
+        <p>
+          要在自己的機器或私有 K3s 上,跑一組互相協作的 AI coding agent(基於上游
+          <strong>OpenAB</strong> 專案),典型編制是四個角色:<strong>leader</strong>(協調)、
+          <strong>researcher</strong>(研究)、<strong>developer</strong>(開發)、
+          <strong>reviewer</strong>(審查)。它們透過 Discord 溝通、以 GitLab MR 交付、跑在 K3s Pod 裡。
+        </p>
+        <p>
+          這個 repo <strong>不是 agent 本身</strong>,而是負責「安全地把這套編制部署與治理起來」的控制工具:
+          把一組 AI agent 當成「有嚴格權限邊界的團隊成員」來部署和管理,並把所有危險操作都關在
+          <span class="mono">驗證 → 計畫 → 備份 → 人類確認</span> 的閘門後面。
+        </p>
+
+        <h3>核心職責</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>功能</th><th>說明</th></tr></thead>
+            <tbody>
+              <tr><td><b>Catalog 驗證</b></td><td>以一份版本化、<b>不含任何密鑰</b>的 YAML 宣告所有 agent(角色、Discord 頻道、repo 授權、資源配額、egress);嚴格 fail-closed 檢查信任拓撲、路徑越界與憑證外洩</td></tr>
+              <tr><td><b>產生部署產物</b></td><td>把 catalog 投影成 OpenAB Helm values 與 K8s 隔離資源:每 agent 一個無權限 ServiceAccount、default-deny NetworkPolicy、唯讀 root filesystem</td></tr>
+              <tr><td><b>獨立 worktree</b></td><td>為每個 agent 對每個授權 repo 做完整 <span class="mono">git clone</span>(非 linked worktree),彼此隔離;delivery remote 由操作員提供</td></tr>
+              <tr><td><b>任務治理</b></td><td>leader 專屬的持久任務紀錄 + 明確生命週期 + 驗收閘門(測試、獨立 review、CI success、人類 merge 授權、commit / push / MR 證據齊全才能 close)</td></tr>
+              <tr><td><b>具防護的部署</b></td><td><span class="mono">deploy</span> / <span class="mono">rollback</span> 預設只出 plan;實際套用需要 ready 環境合約 + chart 路徑 + <b>先完成外部加密備份</b> + 人類確認</td></tr>
+              <tr><td><b>權限分界</b></td><td>部署用與寫 Secret 用必須是兩份不同、各自 namespace-scoped 的 kubeconfig;拒絕使用 K3s admin config</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callouts">
+          <div class="principle"><b>Local-first</b>在沒有 K3s、Discord、GitLab 的情況下即可完整驗證與預覽,不依賴外部控制平面。</div>
+          <div class="principle"><b>密鑰零進版控</b>catalog、環境合約、任務紀錄、備份只能出現「名稱參照」;實際 token 留在 owner-only 檔案或 K8s Secret。</div>
+          <div class="principle"><b>Catalog 為唯一授權來源</b>任務紀錄不能變成第二個授權來源;每次 <span class="mono">status</span> 都會重新比對。</div>
+          <div class="principle"><b>明確邊界</b>repo 自己聲明「這不代表環境已可部署」;實際 K3s 安裝、egress proxy、adapter 仍待操作員補完。</div>
+        </div>
+      </section>
+
+      <section id="architecture">
+        <p class="eyebrow">02 · 架構</p>
+        <h2>模組與分層</h2>
+        <p>
+          由外而內是四層純函式管線,再匯入單一有副作用的操作層。驗證層與投影層完全不需要叢集,
+          可在離線環境反覆執行;所有會改變系統狀態的動作都集中在 <span class="mono">operations</span> 一處。
+        </p>
+        <figure class="diagram">
+<pre class="mermaid">
+%%{init: {'theme':'neutral'}}%%
+flowchart TB
+  CLI["cli.py<br/>argparse 協調層"]
+
+  subgraph IN["操作員輸入（僅名稱，不含密鑰值）"]
+    CAT["catalog.yaml"]
+    ENV["environment.yaml"]
+    REF["reference-manifest.yaml"]
+    REM["remotes.json"]
+    SEC["secrets.yaml（0600 · gitignore）"]
+  end
+
+  subgraph VALID["驗證層 · 純函式 · fail-closed · 不需叢集"]
+    LC["load_catalog<br/>密鑰掃描 / 路徑安全 / 信任拓撲"]
+    LE["load_environment"]
+    LR["load_reference_manifest"]
+    YU["yaml_utils · 拒絕重複鍵"]
+  end
+
+  subgraph PROJ["投影層 · 純函式 · 無副作用"]
+    PLAN["render_plan"]
+    RND["renderer · OpenAB Helm values"]
+    K8S["render_k8s_manifests<br/>ServiceAccount x6 / default-deny / RBAC"]
+    REV["catalog_revision · 12 碼雜湊"]
+  end
+
+  subgraph GOV["治理層 · 本機狀態 · 僅 leader 可寫"]
+    TS["TaskStore<br/>生命週期 + 驗收閘門"]
+    WT["WorktreeManager<br/>獨立 git clone / cleanup / retire"]
+    REG["WorkspaceRegistry · JSON + Markdown"]
+    DP["discord_policy · admission seam"]
+  end
+
+  subgraph OPS["具防護的操作 · 唯一有副作用之處"]
+    PF["preflight（唯讀）"]
+    BK["LocalBackup · SHA-256 / 排除密鑰檔"]
+    SNAP["SnapshotStore"]
+    DEP["deploy / rollback / status"]
+    MS["materialize_secrets"]
+  end
+
+  subgraph EXT["外部 · 操作員責任範圍"]
+    K3S["K3s 叢集"]
+    HELM["OpenAB Helm chart"]
+    DISK["外部加密備份"]
+  end
+
+  IN --> CLI
+  CLI --> VALID
+  VALID --> PROJ
+  CLI --> GOV
+  PROJ --> OPS
+  GOV --> OPS
+  SEC -. 值僅用於 Secret 物料化 .-> MS
+  PF --> DEP
+  BK --> SNAP
+  SNAP --> DEP
+  DEP --> MS
+  MS --> K3S
+  DEP --> HELM
+  DEP --> K3S
+  BK --> DISK
+</pre>
+          <figcaption>圖 1 — 模組與分層架構</figcaption>
+        </figure>
+      </section>
+
+      <section id="flow">
+        <p class="eyebrow">03 · 操作流程</p>
+        <h2>端到端流程</h2>
+        <p>
+          <span class="mono">① Bootstrap</span> 與 <span class="mono">② 驗證</span> 不需叢集即可完成。
+          <span class="mono">③ 任務</span> 與 <span class="mono">④ 部署</span> 為獨立系統,兩者都以 catalog 為唯一授權來源、每次重新比對。
+        </p>
+        <figure class="diagram">
+<pre class="mermaid">
+%%{init: {'theme':'neutral'}}%%
+flowchart TD
+  START(["操作員"]) --> B0
+
+  subgraph BOOT["① Bootstrap（離線）"]
+    B0["environment.yaml 維持 bootstrap-pending"]
+    B1["建立 catalog.yaml（僅參照名稱）"]
+    B2["secrets.yaml 設 0600 · reference-manifest 只登記名稱"]
+    B0 --> B1 --> B2
+  end
+
+  subgraph VAL["② 驗證與預覽（不需叢集）"]
+    V0["environment-validate"]
+    V1["validate --secrets-file · fail-closed"]
+    V2["plan / render-openab / render-k8s<br/>目視檢閱 JSON · YAML"]
+    V0 --> V1 --> V2
+  end
+
+  subgraph TASK["③ 任務與 Worktree（leader 所有）"]
+    T0["task-create · 與 catalog 逐欄比對"]
+    T1["task-transition → assigned / active"]
+    T2["worktree-materialize<br/>每個 grant 獨立 clone + task 分支"]
+    T3["執行工作 → task-report / task-review"]
+    T4{"程式任務驗收閘門<br/>測試 + 獨立 review + CI + 人類 merge 授權"}
+    T5["→ accepted"]
+    T6["MR merge 後 → closed<br/>merge 證據寫入 delivery.md"]
+    T7["worktree-cleanup --yes（保留 worktree）"]
+    T0 --> T1 --> T2 --> T3 --> T4
+    T4 -->|不足| T3
+    T4 -->|符合| T5 --> T6 --> T7
+  end
+
+  subgraph DEPLOY["④ 具防護的部署"]
+    D0["environment 轉為 ready · 清空 pending_decisions"]
+    D1["preflight --chart<br/>git / helm / kubectl · 兩份 kubeconfig · Chart.yaml"]
+    D2{"deploy --yes ?"}
+    D3["僅預覽 snapshot · 不變更 K8s"]
+    D4{"外部加密備份成功 ?"}
+    D5["中止部署 · 不呼叫 K3s"]
+    D6["建立 deployment snapshot"]
+    D7["kubectl apply（deployer kubeconfig）"]
+    D8["Secret 物料化（materializer kubeconfig）"]
+    D9["helm upgrade --install"]
+    D0 --> D1 --> D2
+    D2 -->|否| D3
+    D2 -->|是| D4
+    D4 -->|失敗| D5
+    D4 -->|成功| D6 --> D7 --> D8 --> D9
+  end
+
+  B2 --> V0
+  V2 --> T0
+  V2 --> D0
+  D9 --> S0["status（唯讀）· plan + 觀測 + runtime health"]
+  S0 -->|發現問題| RB["rollback · 相同 ready / chart / 確認閘門"]
+</pre>
+          <figcaption>圖 2 — 端到端操作流程</figcaption>
+        </figure>
+        <ul class="notes">
+          <li>危險操作一律在 <span class="mono">preflight → backup → snapshot → 人類確認</span> 閘門之後。</li>
+          <li>備份失敗即中止部署,不會呼叫任何 K3s / Helm 指令。</li>
+          <li>部署用與寫 Secret 用必須是兩份不同、各自 namespace-scoped 的 kubeconfig。</li>
+        </ul>
+      </section>
+
+      <section id="assessment">
+        <p class="eyebrow">04 · 完整度評估</p>
+        <h2>評估結果</h2>
+        <p class="verdict">
+          整體狀態:<strong>設計範圍內高度完整</strong>。核心功能全部可運行、90 項測試全綠、
+          <span class="mono">helm template</span> 整合測試實測通過;缺口集中在專案衛生與 CLI 層測試覆蓋,並非功能性缺陷。
+        </p>
+
+        <h3>已完成(可運行)</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>面向</th><th>狀態</th></tr></thead>
+            <tbody>
+              <tr><td><b>CLI 指令</b></td><td>齊全:<span class="mono">validate / normalize / plan / render-openab / render-k8s</span>、<span class="mono">environment-validate</span>、<span class="mono">preflight</span>、<span class="mono">backup / restore</span>、<span class="mono">deploy / status / rollback</span>、<span class="mono">task-*</span>、<span class="mono">worktree-*</span></td></tr>
+              <tr><td><b>Catalog 驗證器</b></td><td>fail-closed:密鑰值掃描、路徑安全(env / glob / <span class="mono">..</span> / symlink)、collection boundary、trust topology、資源配額語法</td></tr>
+              <tr><td><b>K8s / Helm renderer</b></td><td>namespace 隔離、6 個 ServiceAccount、default-deny NetworkPolicy、Pod SecurityContext 全固定;整合測試驗證只渲染 4 個 workload 並停用範例 <span class="mono">kiro</span></td></tr>
+              <tr><td><b>任務生命週期</b></td><td>明確狀態機、code 任務驗收閘門、cancellation 證據、catalog re-binding 檢查</td></tr>
+              <tr><td><b>Backup / Restore</b></td><td>SHA-256 manifest、密鑰檔名排除、credential 掃描、只還原到乾淨目的地、原子寫入</td></tr>
+              <tr><td><b>Secret 物料化</b></td><td>0600 權限檢查、redaction seam、materializer RBAC 無 <span class="mono">get</span> / <span class="mono">list</span></td></tr>
+              <tr><td><b>Discord policy</b></td><td>純函式 admission seam(無 SDK)、audit event 不含訊息內容</td></tr>
+              <tr><td><b>文件</b></td><td>README + 4 份 <span class="mono">docs/</span>(catalog、operator-runbook、部署前置清單、git 憑證手冊)+ 安裝指引,內容與程式一致</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>設計上刻意未完成的邊界 <span class="chip low">非缺陷</span></h3>
+        <p>repo 以 <span class="mono">A001–A014</span> 追蹤,明示屬於範圍外:</p>
+        <ul class="tag-list">
+          <li><b>無實際 adapter</b> — 沒有 K3s / Discord / GitLab 客戶端,全部是離線 seam。</li>
+          <li><b>environment.yaml 維持 bootstrap-pending</b> — 不猜測公司 GitLab、Discord ID、runtime pin。</li>
+          <li><b>操作員需自建檔案</b> — <span class="mono">config/catalog.yaml</span>、<span class="mono">reference-manifest.yaml</span>、<span class="mono">remotes.json</span> 不隨附。</li>
+        </ul>
+
+        <h3>可補強的缺口</h3>
+        <div class="table-wrap">
+          <table class="findings">
+            <thead><tr><th>缺口</th><th>嚴重度</th><th>說明</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><b>測試覆蓋不均</b></td>
+                <td><span class="chip mid">中</span></td>
+                <td><span class="mono">cli.py</span>(496 行,最大的協調層)無直接測試,僅間接覆蓋約 4 條路徑;<span class="mono">task-* / worktree-*</span> 大量 CLI 分支未測到。<span class="mono">plan.py</span>、<span class="mono">yaml_utils.py</span> 無直接測試。</td>
+              </tr>
+              <tr>
+                <td><b>無 CI</b></td>
+                <td><span class="chip mid">中</span></td>
+                <td>無 <span class="mono">.github/workflows/</span>,90 項測試沒有自動化把關。</td>
+              </tr>
+              <tr>
+                <td><b>專案衛生缺件</b></td>
+                <td><span class="chip low">低</span></td>
+                <td>無 <span class="mono">LICENSE</span>、<span class="mono">CHANGELOG</span>;無 lint / type-check 設定(ruff / mypy);<span class="mono">pyproject.toml</span> 無 dev 依賴、無 pytest 設定;測試需手動 <span class="mono">PYTHONPATH=.</span>。</td>
+              </tr>
+              <tr>
+                <td><b>缺操作員檔案範本</b></td>
+                <td><span class="chip low">低</span></td>
+                <td>文件反覆引用 <span class="mono">config/catalog.yaml</span>、<span class="mono">config/remotes.json</span>,但 <span class="mono">config/</span> 下只有 <span class="mono">reference-manifest.example.yaml</span> 與 <span class="mono">secrets.yaml.example</span>。</td>
+              </tr>
+              <tr>
+                <td><b>小型程式碼問題</b></td>
+                <td><span class="chip low">低</span></td>
+                <td><span class="mono">cli.py:419</span> 的 <span class="mono">if / else</span> 兩分支內容完全相同(no-op 條件);<span class="mono">operations.py:732</span> <span class="mono">_inside()</span> 定義後未使用;無 <span class="mono">__main__.py</span>,不能 <span class="mono">python -m oab_control</span>。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>建議優先順序</h3>
+        <ol class="priority">
+          <li>加 <span class="mono">.github/workflows/ci.yml</span> 跑現有測試(投報比最高)。</li>
+          <li>補 <span class="mono">cli.py</span> 的 <span class="mono">task-* / worktree-*</span> 分支測試。</li>
+          <li>加 <span class="mono">LICENSE</span>、<span class="mono">pyproject</span> 的 dev 依賴與 pytest / ruff 設定。</li>
+          <li>補 <span class="mono">config/*.example</span> 範本、清掉兩處 dead code。</li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      稽核基準:<code>main</code> 分支 · commit <code>82816ff</code> · 90 tests via <code>python -m unittest discover -s tests</code>。
+      本頁為程式碼閱讀結果的整理,不含執行環境的實機驗證。
+    </footer>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.3/mermaid.min.js"></script>
+<script>
+  (function () {
+    if (!window.mermaid) return;
+    mermaid.initialize({ startOnLoad: true, securityLevel: "loose", theme: "neutral" });
+  })();
+</script>
+</body>
+</html>
