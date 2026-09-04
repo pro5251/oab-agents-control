@@ -1,0 +1,76 @@
+{
+  "_comment": [
+    "scripts/generate-catalog.py 的輸入。複製為 config/catalog-input.json 後填入你的值。",
+    "config/catalog-input.json 已被 .gitignore 排除——它會含有真實 Discord ID 與內部專案路徑。",
+    "",
+    "bots: 不需要去 Discord 後台找。bot token 的第一段是該 bot 的 user ID（base64）：",
+    "  python3 -c \"import base64,sys;t=sys.argv[1].split('.')[0];print(base64.urlsafe_b64decode(t+'='*(-len(t)%4)).decode())\" '<token>'",
+    "",
+    "grants: root 必須是 collection root（存放多個 repo 的目錄），repo 是其中一個。",
+    "  base_branch 建議用該 repo 自己宣告的 HEAD：",
+    "  git -C <repo> symbolic-ref --short refs/remotes/origin/HEAD"
+  ],
+  "home": "/home/YOUR_USER",
+  "mirror_root": "/home/YOUR_USER/git-remotes",
+  "image": "ghcr.io/openabdev/openab:0.9.0-beta.9-native",
+  "command": "openab-agent",
+  "working_dir": "/home/agent",
+  "default_base_branch": "origin/develop",
+  "gitlab_identity_ref": "gitlab-bootstrap",
+  "bots": {
+    "leader": "900000000000000001",
+    "researcher": "900000000000000002",
+    "developer": "900000000000000003",
+    "reviewer": "900000000000000004"
+  },
+  "channels": {
+    "leader": "900000000000001001",
+    "researcher": "900000000000001002",
+    "developer": "900000000000001003",
+    "reviewer": "900000000000001004"
+  },
+  "human_user_id": "900000000000002001",
+  "writers": [
+    "developer"
+  ],
+  "egress": {
+    "leader": [
+      "discord",
+      "model-provider"
+    ],
+    "researcher": [
+      "discord",
+      "model-provider"
+    ],
+    "developer": [
+      "discord",
+      "model-provider",
+      "package-registry"
+    ],
+    "reviewer": [
+      "discord",
+      "model-provider"
+    ]
+  },
+  "resources": {
+    "_default": {
+      "cpu": "100m",
+      "memory": "256Mi",
+      "cpu_limit": "1",
+      "memory_limit": "1Gi"
+    },
+    "developer": {
+      "cpu": "200m",
+      "memory": "512Mi",
+      "cpu_limit": "2",
+      "memory_limit": "2Gi"
+    }
+  },
+  "grants": [
+    {
+      "root": "/home/YOUR_USER/repositories",
+      "repo": "example-service",
+      "base_branch": "origin/develop"
+    }
+  ]
+}

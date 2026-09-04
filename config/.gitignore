@@ -11,3 +11,4 @@ reference-manifest.yaml
 remotes.json
 backup-sources.json
 tasks/
+catalog-input.json
