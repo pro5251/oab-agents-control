@@ -126,7 +126,10 @@ check() { # kubeconfig 動作 資源 期望(yes/no) 說明
 }
 check "$DEPLOYER"     create deployments     yes "deployer 可建立 Deployment"
 check "$DEPLOYER"     create configmaps      yes "deployer 可建立 ConfigMap（Helm release 存放處）"
+check "$DEPLOYER"     list   pods            yes "deployer 可觀測 Pod（status 需要）"
 check "$DEPLOYER"     get    secrets         no  "deployer 不可讀取 Secret"
+check "$DEPLOYER"     delete pods            no  "deployer 不可刪除 Pod"
+check "$DEPLOYER"     create pods            no  "deployer 不可直接建立 Pod"
 check "$MATERIALIZER" create secrets         yes "materializer 可寫入 Secret"
 check "$MATERIALIZER" get    secrets         no  "materializer 不可讀回 Secret"
 check "$MATERIALIZER" create deployments     no  "materializer 不可部署"

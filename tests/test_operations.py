@@ -686,6 +686,29 @@ class HelmReleaseDriverTests(unittest.TestCase):
         # ConfigMaps are the fallback release store, so they must stay granted.
         self.assertIn("configmaps", granted)
 
+    def test_deployer_role_can_observe_pods_but_never_mutate_them(self) -> None:
+        """``status`` observes runtime through the deployer identity."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            normalized, diagnostics = validate_catalog(catalog(Path(directory)))
+            self.assertEqual(diagnostics, [])
+            assert normalized is not None
+            manifests = render_k8s_manifests(normalized, namespace="oab-agents")
+        role = next(
+            item for item in manifests
+            if item["kind"] == "Role" and item["metadata"]["name"] == "oab-control-deployer"
+        )
+        pod_verbs = {
+            verb
+            for rule in role["rules"]
+            if "pods" in rule["resources"]
+            for verb in rule["verbs"]
+        }
+        self.assertEqual(pod_verbs, {"get", "list", "watch"})
+        # Creating or deleting Pods directly would bypass the Deployment the
+        # catalog declares, so those verbs must stay off.
+        self.assertTrue({"create", "delete", "patch", "update"}.isdisjoint(pod_verbs))
+
     def test_helm_apply_uses_configmap_release_driver(self) -> None:
         captured: dict[str, object] = {}
 

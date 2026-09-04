@@ -147,6 +147,12 @@ def render_k8s_manifests(
                     {"apiGroups": [""], "resources": ["configmaps", "persistentvolumeclaims", "serviceaccounts"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
                     {"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
                     {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
+                    # Read-only Pod visibility.  ``status`` observes runtime health
+                    # through this identity, and a deployer that may create a
+                    # Deployment but cannot see the Pods it produced is not a
+                    # boundary -- it is a blind spot.  Deliberately no create or
+                    # delete, and no bearing on the Secret boundary above.
+                    {"apiGroups": [""], "resources": ["pods", "pods/log"], "verbs": ["get", "list", "watch"]},
                 ],
             },
             {
