@@ -124,12 +124,26 @@ check() { # kubeconfig 動作 資源 期望(yes/no) 說明
   if [ "$got" = "$want" ]; then ok "$desc（$got）"
   else die "$desc 期望 $want 但得到 $got"; fi
 }
+
+# 子資源必須用 --subresource。寫成 `can-i get pods/log` 會被解讀成
+# 「取得名為 log 的 pod」而回答 yes，是假陽性——它對 pods/nonexistent
+# 也一樣回答 yes。
+check_sub() { # kubeconfig 動作 資源 子資源 期望 說明
+  local kc="$1" verb="$2" res="$3" sub="$4" want="$5" desc="$6" got
+  got="$(KUBECONFIG="$kc" kubectl auth can-i "$verb" "$res" --subresource="$sub" -n "$NS" 2>/dev/null || true)"
+  if [ "$got" = "$want" ]; then ok "$desc（$got）"
+  else die "$desc 期望 $want 但得到 $got"; fi
+}
 check "$DEPLOYER"     create deployments     yes "deployer 可建立 Deployment"
 check "$DEPLOYER"     create configmaps      yes "deployer 可建立 ConfigMap（Helm release 存放處）"
 check "$DEPLOYER"     list   pods            yes "deployer 可觀測 Pod（status 需要）"
 check "$DEPLOYER"     get    secrets         no  "deployer 不可讀取 Secret"
 check "$DEPLOYER"     delete pods            no  "deployer 不可刪除 Pod"
 check "$DEPLOYER"     create pods            no  "deployer 不可直接建立 Pod"
+# Agent 容器以 secretKeyRef 取得 DISCORD_BOT_TOKEN，因此 exec／log 等同於
+# 讀取 Secret。這兩項若被放寬，上面的「不可讀取 Secret」就形同虛設。
+check_sub "$DEPLOYER" create pods exec       no  "deployer 不可 exec 進 Pod（會讀到 token）"
+check_sub "$DEPLOYER" get    pods log        no  "deployer 不可讀取 Pod 日誌"
 check "$MATERIALIZER" create secrets         yes "materializer 可寫入 Secret"
 check "$MATERIALIZER" get    secrets         no  "materializer 不可讀回 Secret"
 check "$MATERIALIZER" create deployments     no  "materializer 不可部署"

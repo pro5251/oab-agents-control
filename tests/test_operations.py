@@ -709,6 +709,28 @@ class HelmReleaseDriverTests(unittest.TestCase):
         # catalog declares, so those verbs must stay off.
         self.assertTrue({"create", "delete", "patch", "update"}.isdisjoint(pod_verbs))
 
+    def test_deployer_role_never_reaches_secret_values_through_a_pod(self) -> None:
+        """Agent Pods carry the bot token as env, so exec/log would leak it.
+
+        The deployer Role denies ``secrets`` outright.  ``pods/exec`` gives a
+        shell in a container whose environment holds the very same value, and
+        ``pods/log`` can carry it too, so both must stay off or the Secret
+        boundary is decorative.
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+            normalized, diagnostics = validate_catalog(catalog(Path(directory)))
+            self.assertEqual(diagnostics, [])
+            assert normalized is not None
+            manifests = render_k8s_manifests(normalized, namespace="oab-agents")
+        role = next(
+            item for item in manifests
+            if item["kind"] == "Role" and item["metadata"]["name"] == "oab-control-deployer"
+        )
+        granted = {resource for rule in role["rules"] for resource in rule["resources"]}
+        for subresource in ("pods/exec", "pods/attach", "pods/portforward", "pods/log", "secrets"):
+            self.assertNotIn(subresource, granted)
+
     def test_helm_apply_uses_configmap_release_driver(self) -> None:
         captured: dict[str, object] = {}
 

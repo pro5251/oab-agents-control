@@ -147,12 +147,19 @@ def render_k8s_manifests(
                     {"apiGroups": [""], "resources": ["configmaps", "persistentvolumeclaims", "serviceaccounts"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
                     {"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
                     {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
-                    # Read-only Pod visibility.  ``status`` observes runtime health
-                    # through this identity, and a deployer that may create a
-                    # Deployment but cannot see the Pods it produced is not a
-                    # boundary -- it is a blind spot.  Deliberately no create or
-                    # delete, and no bearing on the Secret boundary above.
-                    {"apiGroups": [""], "resources": ["pods", "pods/log"], "verbs": ["get", "list", "watch"]},
+                    # Read-only Pod metadata, and nothing more.  ``status``
+                    # observes runtime health through this identity, and a
+                    # deployer that may create a Deployment but cannot see the
+                    # Pods it produced is a blind spot rather than a boundary.
+                    #
+                    # ``pods/exec`` and ``pods/log`` are deliberately excluded.
+                    # Agent containers receive their Discord bot token as a
+                    # secretKeyRef environment variable, so a shell inside the
+                    # Pod -- or a log stream that happens to echo it -- would
+                    # hand this identity the Secret values the Role above is
+                    # specifically written to deny.  Use the bootstrap identity
+                    # for exec and logs.
+                    {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
                 ],
             },
             {
