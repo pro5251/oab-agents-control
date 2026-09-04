@@ -75,6 +75,40 @@ KUBECONFIG=$ADMIN kubectl -n oab-agents rollout restart deploy/developer
 
 ---
 
+## codex 變體：關閉內建沙箱
+
+codex 用 **bubblewrap** 建立唯讀沙箱來執行模型產生的指令。
+但這個容器本身已經是沙箱（唯讀 rootfs、drop ALL、無 SA token、
+egress 限制、逐 checkout 掛載），而 bubblewrap 在此環境**無法建立
+user namespace**：
+
+```
+bwrap: No permissions to create new namespace
+```
+
+結果：codex agent 能通過授權、能回應聊天，但**連讀檔都會失敗**。
+
+修正：讓 codex 把沙箱交給容器層。
+
+```bash
+bash scripts/configure-codex-sandbox.sh
+```
+
+它會掃出 codex 變體的 agent，寫入 `~/.codex/config.toml`：
+
+```toml
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+```
+
+名稱看起來嚇人，但推理是成立的：**K8s 容器就是那個沙箱**。
+codex 能碰到的最壞情況，是寫入它自己那 11 個 checkout
+（唯讀角色連這個都不行）。容器層已經擋住其餘一切。
+
+這份 config 與授權 token 都在 PVC 上，重啟保留；刪 PVC 或新增 agent 需重跑。
+
+**copilot 變體不受影響**——copilot 不使用 bubblewrap，本來就能運作。
+
 ## 確認授權狀態
 
 ```bash
@@ -116,8 +150,13 @@ copilot 也接受環境變數中的 token，優先序：
 | researcher | copilot | ✅ 可運作 |
 | reviewer | copilot | ✅ 可運作 |
 
-四個 agent 都能回應訊息，且會遵守 `AGENTS.md` 的角色規則
-（實測：向 researcher 直接下指令，它回覆「只接受 leader 在指定頻道的提及」）。
+四個 agent 都能回應訊息、遵守 `AGENTS.md` 的角色規則，且**能實際讀取 workspace**：
+
+- researcher／reviewer（copilot）：`ls` workspace 正常
+- leader／developer（codex）：套用沙箱設定後可讀取（`configure-codex-sandbox.sh`）
+
+實測：對 developer 問「這個目錄是什麼專案」，它正確回答
+「MoneyIn 系統的 MySQL 資料庫專案」——確實讀了檔案，且未修改任何東西。
 
 ---
 
