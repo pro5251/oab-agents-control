@@ -138,7 +138,7 @@ flowchart TD
 ## 快速開始
 
 ```bash
-PYTHONPATH=. python3 -m unittest discover -s tests -v          # 90 項測試
+PYTHONPATH=. python3 -m unittest discover -s tests -v          # 115 項測試
 PYTHONPATH=. python3 -m oab_control.cli validate \
   examples/catalog.example.yaml --no-path-check \
   --secrets-file config/reference-manifest.example.yaml --json
@@ -153,6 +153,9 @@ PYTHONPATH=. python3 -m oab_control.cli validate \
 
 | 文件 | 內容 | 何時閱讀 |
 | --- | --- | --- |
+| [CONTEXT.md](CONTEXT.md) | 領域術語表 | 詞彙被混用時 |
+| [docs/規格-agent-工作流程.md](docs/規格-agent-工作流程.md) | Agent 行為契約與證據分類 | 想知道系統保證什麼、不保證什麼 |
+| [docs/adr/](docs/adr/) | 難以逆轉的設計決策 | 想知道「為什麼不用另一種做法」 |
 | [docs/架構說明.md](docs/架構說明.md) | 分層設計、安全邊界與取捨理由 | 想理解「為什麼這樣設計」 |
 | [docs/安裝與快速開始.md](docs/安裝與快速開始.md) | Python 安裝、測試、離線驗證指令 | 第一次使用 |
 | [docs/本機部署實作.md](docs/本機部署實作.md) | 本機真實配置與可直接執行的部署步驟 | **要在這台機器上部署** |
