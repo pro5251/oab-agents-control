@@ -168,20 +168,30 @@ def render_k8s_manifests(
                 "rules": [
                     {"apiGroups": [""], "resources": ["configmaps", "persistentvolumeclaims", "serviceaccounts"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
                     {"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
+                    # ReplicaSets are created by the Deployments above, not by
+                    # this identity, so they are read-only here.  Without them
+                    # `kubectl rollout history` fails while `rollout restart`
+                    # and `rollout status` succeed, which is an inconsistency
+                    # rather than a boundary.
+                    {"apiGroups": ["apps"], "resources": ["replicasets"], "verbs": ["get", "list", "watch"]},
                     {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
-                    # Read-only Pod metadata, and nothing more.  ``status``
-                    # observes runtime health through this identity, and a
-                    # deployer that may create a Deployment but cannot see the
-                    # Pods it produced is a blind spot rather than a boundary.
+                    # Read-only observation of what this identity deployed.
                     #
-                    # ``pods/exec`` and ``pods/log`` are deliberately excluded.
-                    # Agent containers receive their Discord bot token as a
-                    # secretKeyRef environment variable, so a shell inside the
-                    # Pod -- or a log stream that happens to echo it -- would
-                    # hand this identity the Secret values the Role above is
-                    # specifically written to deny.  Use the bootstrap identity
-                    # for exec and logs.
-                    {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
+                    # The rule for what belongs here: the deployer may *read*
+                    # the objects its own Deployments produce, because an
+                    # identity that can restart a workload but cannot see the
+                    # Pods or the events explaining a failure is a blind spot,
+                    # not a boundary.  It may not write them -- Pods change
+                    # only through the Deployment the catalog declares.
+                    #
+                    # ``pods/exec`` and ``pods/log`` stay out no matter how
+                    # convenient they are.  Agent containers hold their Discord
+                    # bot token as a secretKeyRef environment variable, so a
+                    # shell inside the Pod -- or a log stream that echoes it --
+                    # would hand this identity exactly the Secret values the
+                    # rules above are written to deny.  Use the bootstrap
+                    # identity for exec and logs.
+                    {"apiGroups": [""], "resources": ["pods", "events"], "verbs": ["get", "list", "watch"]},
                 ],
             },
             {

@@ -705,9 +705,38 @@ class HelmReleaseDriverTests(unittest.TestCase):
             for verb in rule["verbs"]
         }
         self.assertEqual(pod_verbs, {"get", "list", "watch"})
+        # Events are the primary failure-diagnosis surface for the workloads
+        # this identity deploys, and are read-only for the same reason.
+        event_verbs = {
+            verb
+            for rule in role["rules"]
+            if "events" in rule["resources"]
+            for verb in rule["verbs"]
+        }
+        self.assertEqual(event_verbs, {"get", "list", "watch"})
         # Creating or deleting Pods directly would bypass the Deployment the
         # catalog declares, so those verbs must stay off.
         self.assertTrue({"create", "delete", "patch", "update"}.isdisjoint(pod_verbs))
+
+    def test_deployer_can_read_but_not_write_the_replicasets_it_causes(self) -> None:
+        """`rollout history` needs these; `rollout restart` already worked."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            normalized, diagnostics = validate_catalog(catalog(Path(directory)))
+            self.assertEqual(diagnostics, [])
+            assert normalized is not None
+            manifests = render_k8s_manifests(normalized, namespace="oab-agents")
+        role = next(
+            item for item in manifests
+            if item["kind"] == "Role" and item["metadata"]["name"] == "oab-control-deployer"
+        )
+        verbs = {
+            verb
+            for rule in role["rules"]
+            if "replicasets" in rule["resources"]
+            for verb in rule["verbs"]
+        }
+        self.assertEqual(verbs, {"get", "list", "watch"})
 
     def test_deployer_role_never_reaches_secret_values_through_a_pod(self) -> None:
         """Agent Pods carry the bot token as env, so exec/log would leak it.

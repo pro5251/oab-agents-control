@@ -137,9 +137,12 @@ check_sub() { # kubeconfig 動作 資源 子資源 期望 說明
 check "$DEPLOYER"     create deployments     yes "deployer 可建立 Deployment"
 check "$DEPLOYER"     create configmaps      yes "deployer 可建立 ConfigMap（Helm release 存放處）"
 check "$DEPLOYER"     list   pods            yes "deployer 可觀測 Pod（status 需要）"
+check "$DEPLOYER"     list   events          yes "deployer 可讀取事件（診斷需要）"
+check "$DEPLOYER"     list   replicasets     yes "deployer 可讀取 ReplicaSet（rollout history 需要）"
 check "$DEPLOYER"     get    secrets         no  "deployer 不可讀取 Secret"
 check "$DEPLOYER"     delete pods            no  "deployer 不可刪除 Pod"
 check "$DEPLOYER"     create pods            no  "deployer 不可直接建立 Pod"
+check "$DEPLOYER"     create replicasets     no  "deployer 不可直接建立 ReplicaSet"
 # Agent 容器以 secretKeyRef 取得 DISCORD_BOT_TOKEN，因此 exec／log 等同於
 # 讀取 Secret。這兩項若被放寬，上面的「不可讀取 Secret」就形同虛設。
 check_sub "$DEPLOYER" create pods exec       no  "deployer 不可 exec 進 Pod（會讀到 token）"
