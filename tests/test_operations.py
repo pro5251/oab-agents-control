@@ -11,7 +11,7 @@ import yaml
 
 from oab_control.catalog import validate_catalog
 from oab_control.k8s import BOOTSTRAP_ONLY_KINDS, render_k8s_manifests
-from oab_control.operations import ControlOperations, OperationError, _helm_apply, _kubectl_apply
+from oab_control.operations import ControlOperations, OperationError, _helm_apply, _kubectl_apply, _observe_task
 from oab_control.registry import WorkspaceRecord, WorkspaceRegistry
 from oab_control.tasks import Task, TaskStore
 from test_catalog import catalog
@@ -782,5 +782,60 @@ class HelmReleaseDriverTests(unittest.TestCase):
         self.assertNotIn("--create-namespace", captured["command"])
 
 
+class ClosedTaskObservationTests(unittest.TestCase):
+    """A finished task's binding is history, not a pending action."""
+
+    def test_a_closed_task_with_a_stale_binding_is_not_flagged_for_reconciliation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = catalog(root)
+            normalized, diagnostics = validate_catalog(document)
+            self.assertEqual(diagnostics, [])
+            assert normalized is not None
+
+            store = TaskStore(root / "tasks")
+            store.create(_binding_task(normalized), actor="leader")
+            store.transition("task-obs", "closed", actor="leader", evidence={
+                "cancellation_reason": "superseded", "cancellation_decider": "leader",
+            })
+            # The catalog moves on after the task is finished.
+            normalized["agents"]["developer"]["discord"]["work_channel_id"] = "200000000000009999"
+            observation = _observe_task(store.get("task-obs"), normalized)
+
+        self.assertEqual(observation["catalog_binding"], "stale")
+        self.assertNotEqual(observation["state"], "needs-reconciliation")
+
+    def test_a_live_task_with_the_same_drift_is_flagged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            normalized, _ = validate_catalog(catalog(root))
+            assert normalized is not None
+            store = TaskStore(root / "tasks")
+            store.create(_binding_task(normalized), actor="leader")
+            store.transition("task-obs", "assigned", actor="leader")
+            normalized["agents"]["developer"]["discord"]["work_channel_id"] = "200000000000009999"
+            observation = _observe_task(store.get("task-obs"), normalized)
+
+        self.assertEqual(observation["catalog_binding"], "mismatch")
+        self.assertEqual(observation["state"], "needs-reconciliation")
+
+
+def _binding_task(normalized: dict) -> Task:
+    agent = normalized["agents"]["developer"]
+    grant = agent["repository_grants"][0]
+    return Task(
+        task_id="task-obs", kind="research", goal="g", scope="s", canonical_sources=(),
+        agent_id="developer", repository=grant["repository"],
+        checkout_subpath=grant["checkout_subpath"],
+        worktree_path=agent["worktree"]["path"],
+        container_mount_path=f"{agent['worktree']['container_mount_path']}/{grant['checkout_subpath']}",
+        branch="task/task-obs", base_branch=grant["base_branch"], delivery_owner="developer",
+        gitlab_identity_ref=agent["delivery"]["gitlab_identity_ref"], tests=(),
+        completion_marker="m", checkpoint="c", deadline="2099-01-01T00:00:00Z",
+        reply_to=agent["discord"]["work_channel_id"],
+    )
+
+
 if __name__ == "__main__":
     unittest.main()
+

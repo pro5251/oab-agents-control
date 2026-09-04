@@ -698,6 +698,11 @@ def _observe_workspace(record: Any) -> dict[str, Any]:
 def _observe_task(task: Any, catalog: Mapping[str, Any]) -> dict[str, Any]:
     """Observe task timing and whether its durable envelope still has a grant."""
 
+    # A closed task's binding is history: the catalog may have moved on, but
+    # there is nothing left to reconcile.  Flagging it forever turns the signal
+    # into noise that accumulates with every finished task.
+    terminal = task.state == "closed"
+
     binding_error: str | None = None
     try:
         validate_task_catalog_binding(task, catalog)
@@ -718,7 +723,10 @@ def _observe_task(task: Any, catalog: Mapping[str, Any]) -> dict[str, Any]:
                 observation = {"task_id": task.task_id, "state": "stale-checkpoint", "action": "manual reconciliation required", "heartbeat": "not-configured"}
             else:
                 observation = {"task_id": task.task_id, "state": "on-track", "heartbeat": "not-configured"}
-    if binding_error is not None:
+    if binding_error is not None and terminal:
+        observation["catalog_binding"] = "stale"
+        observation["catalog_binding_reason"] = binding_error
+    elif binding_error is not None:
         observation["catalog_binding"] = "mismatch"
         observation["catalog_binding_reason"] = binding_error
         if observation["state"] == "on-track":
