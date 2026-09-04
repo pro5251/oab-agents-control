@@ -51,6 +51,44 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(values["agents"]["leader"]["nameOverride"], "leader")
         self.assertIn('bot_token = "${DISCORD_BOT_TOKEN}"', values["agents"]["leader"]["configToml"])
 
+    def test_working_dir_defaults_to_the_native_image_home(self) -> None:
+        normalized = self.normalized()
+        developer = normalized["agents"]["developer"]
+        self.assertEqual(developer["runtime"]["working_dir"], "/home/agent")
+        config = tomllib.loads(render_config_toml("developer", developer))
+        self.assertEqual(config["agent"]["working_dir"], "/home/agent")
+        values = render_openab_values(normalized)
+        self.assertEqual(values["agents"]["developer"]["workingDir"], "/home/agent")
+
+    def test_working_dir_follows_the_image_variant_per_agent(self) -> None:
+        """A -claude/-gemini image runs as `node`, so its home differs."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            document = catalog(Path(directory))
+            document["agents"]["developer"]["runtime"]["working_dir"] = "/home/node"
+            normalized, diagnostics = validate_catalog(document)
+        self.assertEqual(diagnostics, [])
+        assert normalized is not None
+
+        config = tomllib.loads(render_config_toml("developer", normalized["agents"]["developer"]))
+        self.assertEqual(config["agent"]["working_dir"], "/home/node")
+        values = render_openab_values(normalized)
+        self.assertEqual(values["agents"]["developer"]["workingDir"], "/home/node")
+        # Per-agent, so an agent that did not opt in keeps the default.
+        self.assertEqual(values["agents"]["reviewer"]["workingDir"], "/home/agent")
+
+    def test_unsafe_working_dir_is_rejected(self) -> None:
+        for unsafe in ("home/node", "~/agent", "/home/${USER}", "/home/../etc"):
+            with self.subTest(working_dir=unsafe), tempfile.TemporaryDirectory() as directory:
+                document = catalog(Path(directory))
+                document["agents"]["developer"]["runtime"]["working_dir"] = unsafe
+                normalized, diagnostics = validate_catalog(document)
+                self.assertIsNone(normalized)
+                self.assertTrue(
+                    any(item.path == "$.agents.developer.runtime.working_dir" for item in diagnostics),
+                    diagnostics,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

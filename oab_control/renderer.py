@@ -23,10 +23,16 @@ def _toml_array(values: list[str]) -> str:
     return "[" + ", ".join(_toml_string(value) for value in values) + "]"
 
 
-def render_config_toml(agent_id: str, agent: Mapping[str, Any], *, working_dir: str = "/home/agent") -> str:
-    """Render only OpenAB-supported fields and prove the result parses as TOML."""
+def render_config_toml(agent_id: str, agent: Mapping[str, Any], *, working_dir: str | None = None) -> str:
+    """Render only OpenAB-supported fields and prove the result parses as TOML.
+
+    ``working_dir`` defaults to the agent's own ``runtime.working_dir`` so that
+    an image whose user home is not ``/home/agent`` still receives a writable
+    home; an explicit argument overrides it.
+    """
 
     discord = agent["discord"]
+    working_dir = working_dir or agent["runtime"].get("working_dir", "/home/agent")
     channels = [channel for channel in (discord.get("entry_channel_id"), discord.get("work_channel_id")) if channel]
     if len(channels) != 1:
         raise RenderError(f"{agent_id}: exactly one Discord channel is required")
@@ -86,7 +92,10 @@ def render_openab_values(catalog: Mapping[str, Any], *, runtime_volume_size: str
             "nameOverride": agent_id,
             "serviceAccountName": agent_service_account_name(agent_id),
             "image": agent["runtime"]["image"],
-            "workingDir": "/home/agent",
+            # The chart mounts the runtime PVC here, so it must be the image's
+            # own user home or the agent gets a read-only root and no writable
+            # home.  See runtime.working_dir in docs/參考/catalog-契約.md.
+            "workingDir": agent["runtime"].get("working_dir", "/home/agent"),
             "persistence": {"enabled": True, "size": runtime_volume_size},
             "secretEnv": [{"name": "DISCORD_BOT_TOKEN", "secretName": secret_name, "secretKey": secret_key}],
             "configToml": render_config_toml(agent_id, agent),

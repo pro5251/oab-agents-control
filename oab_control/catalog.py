@@ -20,6 +20,9 @@ from .yaml_utils import load_yaml
 
 CATALOG_VERSION = 1
 DEFAULT_BASE_BRANCH = "origin/develop"
+#: Home directory of the `agent` user in the -native and kiro OpenAB images.
+#: The -claude/-gemini/-opencode variants run as `node` and need /home/node.
+DEFAULT_WORKING_DIR = "/home/agent"
 ROLES = {"leader", "researcher", "developer", "reviewer"}
 WORKER_ROLES = ROLES - {"leader"}
 ACCESS = {"read", "write"}
@@ -260,11 +263,17 @@ class _Validator:
         runtime = self.mapping(value, path)
         if runtime is None:
             return None
-        self.keys(runtime, {"command", "args", "model", "image"}, path)
+        self.keys(runtime, {"command", "args", "model", "image", "working_dir"}, path)
         command = self.string(self.require(runtime, "command", path), f"{path}.command")
         args = self.list_of_strings(runtime.get("args", []), f"{path}.args")
         model = self.string(self.require(runtime, "model", path), f"{path}.model")
         image = self.string(self.require(runtime, "image", path), f"{path}.image")
+        # Published OpenAB images differ by bundled ACP CLI: the -native and
+        # kiro variants run as `agent` with /home/agent, while the -claude,
+        # -gemini and -opencode variants run as `node` with /home/node.  The
+        # chart mounts the runtime PVC at this path, so it has to match the
+        # image or the agent has no writable home.
+        working_dir = self.absolute_path(runtime.get("working_dir", DEFAULT_WORKING_DIR), f"{path}.working_dir")
         if command is not None and not re.fullmatch(r"[A-Za-z0-9._/+:-]+", command):
             self.error(f"{path}.command", "runtime_command", "must be one executable name/path; put flags in args and do not use shell syntax")
         if args is not None:
@@ -274,9 +283,9 @@ class _Validator:
         for field, value in (("model", model), ("image", image)):
             if value is not None and any(character in value for character in ("\0", "\r", "\n")):
                 self.error(f"{path}.{field}", "runtime_value", "must not contain control characters")
-        if any(item is None for item in (command, args, model, image)):
+        if any(item is None for item in (command, args, model, image, working_dir)):
             return None
-        return {"command": command, "args": args, "model": model, "image": image}
+        return {"command": command, "args": args, "model": model, "image": image, "working_dir": str(working_dir)}
 
     def validate_discord(self, value: Any, path: str, role: str | None) -> dict[str, Any] | None:
         discord = self.mapping(value, path)

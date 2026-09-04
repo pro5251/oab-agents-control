@@ -73,6 +73,53 @@ Agent ID 必須符合 `^[a-z][a-z0-9-]{0,62}$`（小寫 DNS 風格識別碼）�
 | `args` | 否 | 字串陣列，不可含控制字元 |
 | `model` | 是 | 字串，不可含控制字元 |
 | `image` | 是 | 容器映像檔，不可含控制字元 |
+| `working_dir` | 否 | 絕對路徑，預設 `/home/agent`。**必須等於該 image 內使用者的 home** |
+
+### `working_dir` 與 image 變體
+
+OpenAB 的發佈映像檔依內建的 ACP CLI 分成不同變體，**使用者與 home 並不一致**：
+
+| 變體 | user | uid | home | `command` 應填 |
+| --- | --- | --- | --- | --- |
+| `-native` | `agent` | 1000 | `/home/agent` | `openab-agent` |
+| `latest`（kiro） | `agent` | 1000 | `/home/agent` | `kiro-cli` |
+| `-claude` | `node` | 1000 | `/home/node` | `claude` |
+| `-gemini` | `node` | 1000 | `/home/node` | `gemini` |
+| `-opencode` | `node` | 1000 | `/home/node` | `opencode` |
+
+**所有變體的 UID 都是 1000**（實測 `-native` 與 `-claude` 皆為 `uid=1000`），
+只有使用者名稱與 home 路徑不同。因此 renderer 固定的
+`runAsUser: 1000`／`fsGroup: 1000` 對所有變體都成立，
+**唯一需要跟著變體調整的就是 `working_dir`**。
+
+chart 會把 runtime PVC 掛在 `working_dir`。若它與 image 的實際 home 不符，
+容器就會在唯讀 root filesystem 上沒有可寫的家目錄。
+
+`working_dir` 是**逐 agent** 設定，因此不同 agent 可以使用不同變體：
+
+```yaml
+developer:
+  runtime:
+    command: claude
+    args: []
+    model: claude-sonnet-4-5
+    image: ghcr.io/openabdev/openab:0.9.0-beta.9-claude
+    working_dir: /home/node        # 這個變體以 node 身分執行
+
+reviewer:
+  runtime:
+    command: openab-agent
+    args: []
+    model: model-reviewer
+    image: ghcr.io/openabdev/openab:0.9.0-beta.9-native
+    # 省略 working_dir，沿用預設 /home/agent
+```
+
+確認某個變體的實際 home：
+
+```bash
+docker run --rm --entrypoint sh ghcr.io/openabdev/openab:<tag> -c 'id; echo $HOME'
+```
 
 ### `discord`
 
