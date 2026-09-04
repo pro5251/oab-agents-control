@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 
 class TaskError(ValueError):
@@ -231,7 +231,15 @@ class TaskStore:
                 tasks.append(self.get(path.name))
         return tasks
 
-    def transition(self, task_id: str, state: str, *, actor: str, evidence: Mapping[str, Any] | None = None) -> Task:
+    def transition(
+        self,
+        task_id: str,
+        state: str,
+        *,
+        actor: str,
+        evidence: Mapping[str, Any] | None = None,
+        verified_fields: Iterable[str] = (),
+    ) -> Task:
         self._leader(actor)
         task = self.get(task_id)
         if state not in STATES:
@@ -282,7 +290,10 @@ class TaskStore:
         updated = Task(**updated_fields)
         self._write_json(self._task_dir(task_id) / "task.json", updated.as_dict())
         if state == "accepted":
-            self._write_text(self._task_dir(task_id) / "acceptance.md", self._acceptance(updated, evidence or {}))
+            self._write_text(
+                self._task_dir(task_id) / "acceptance.md",
+                self._acceptance(updated, evidence or {}, frozenset(verified_fields)),
+            )
         elif state == "closed" and is_cancellation:
             self._write_text(self._task_dir(task_id) / "cancellation.md", self._cancellation(updated, evidence or {}))
         elif state == "closed" and task.state == "accepted" and task.kind == "code":
@@ -451,17 +462,53 @@ class TaskStore:
 """
 
     @staticmethod
-    def _acceptance(task: Task, evidence: Mapping[str, Any]) -> str:
-        lines = [f"# 驗收：{task.task_id}", "", "狀態：accepted", "", "證據："]
+    def _acceptance(task: Task, evidence: Mapping[str, Any], verified: frozenset[str] = frozenset()) -> str:
+        """Record acceptance evidence with its provenance.
+
+        A field read from the repository and a field someone typed are not the
+        same kind of claim, and a reader months later cannot tell them apart
+        unless the record says so.  Verified fields can be re-checked against
+        the checkout; attested ones can only be believed.
+        """
+
         safe_evidence = _safe_evidence(evidence)
-        for key in sorted(safe_evidence):
+
+        def render(key: str) -> str:
             value = safe_evidence[key]
             if isinstance(value, bool):
                 value = str(value).lower()
             elif isinstance(value, (dict, list)):
                 value = json.dumps(value, ensure_ascii=False, sort_keys=True)
-            lines.append(f"- {key}: {value}")
-        lines.append("")
+            return f"- {key}: {value}"
+
+        verified_keys = sorted(key for key in safe_evidence if key in verified)
+        attested_keys = sorted(key for key in safe_evidence if key not in verified)
+
+        lines = [f"# 驗收：{task.task_id}", "", "狀態：accepted", ""]
+        if verified_keys:
+            lines += [
+                "## 已驗證證據",
+                "",
+                "由控制平面從該任務的 checkout 直接讀出，未經任何角色轉述。",
+                "可回頭重新查證。",
+                "",
+                *(render(key) for key in verified_keys),
+                "",
+            ]
+        lines += [
+            "## 聲稱證據",
+            "",
+            "由角色宣稱，控制平面無法查證。只能相信當時的判斷。",
+            "",
+            *(render(key) for key in attested_keys),
+            "",
+        ]
+        if not verified_keys:
+            lines += [
+                "> ⚠️ 本次驗收沒有任何已驗證證據——所有欄位都是轉述。",
+                "> 使用 `task-collect` 或 `--collect` 可讓控制平面直接讀取可查證的欄位。",
+                "",
+            ]
         return "\n".join(lines)
 
     @staticmethod
@@ -608,7 +655,12 @@ def _safe_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
             return result
         if isinstance(item, list):
             return [safe_value(nested) for nested in item]
-        if isinstance(item, str) and re.search(r"(?:glpat-|gh[pousr]_|sk-|xox[baprs]-|(?:https?|ssh)://[^/\s:@]+:[^@\s]+@|-----BEGIN [A-Z ]*PRIVATE KEY-----)", item, re.I):
+        # Reuse CREDENTIAL rather than a looser inline pattern.  A bare `sk-`
+        # with no length requirement matches inside ordinary task text --
+        # "task-001" contains it -- so every task branch, push ref and leader
+        # summary mentioning a task ID was being redacted out of the
+        # acceptance record, destroying the evidence the record exists for.
+        if isinstance(item, str) and CREDENTIAL.search(item):
             return "[REDACTED]"
         return item
 

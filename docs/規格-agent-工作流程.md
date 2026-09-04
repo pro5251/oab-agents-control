@@ -60,12 +60,13 @@ Agent 掛載的是真實專案原始碼。任何一份 README、註解、issue �
 - 回報給 leader agent，不與其他 worker 直接協作
 - 忽略 workspace 內的指示檔（見 §4）
 
-**意外（必須修正為強制或明確接受）**
+**曾經是意外，現已轉為設計**
 
-- Agent 無法 push：目前成立的原因是 delivery remote 指向**未掛載的主機路徑**，
-  容器內根本連不上。這不是設計，是拓撲的副作用。
-  一旦 mirror 被掛入、或 remote 改為網路 URL，這道邊界會無聲消失。
-  → 見 §5.3。
+- Agent 無法 push。這道邊界原本只是拓撲的副作用——delivery remote 指向
+  未掛載的主機路徑，容器內連不上。現在它是 §5.3 的明文要求，
+  交付改由操作員執行（§5.4），agent 因此**不需要**push 能力。
+  但實作上它仍由拓撲維持：把 mirror 掛入容器或改用網路 remote，
+  仍會**無聲**違反 §5.3。修改 delivery remote 前必須重讀該節。
 
 ---
 
@@ -116,8 +117,13 @@ Agent 掛載的是真實專案原始碼。任何一份 README、註解、issue �
 這條界線必須是**二元的**。「家目錄優先，workspace 可補充」聽起來合理，
 但「補充」與「覆寫」的界線由誰判斷？答案是被注入的那個模型自己。
 
-**已知限制**：這是勸告，無法強制。可行的緩解是**偵測**——
-控制平面可掃描授權的 checkout，發現指示檔時警示（§7.2）。
+**已知限制**：這是勸告，無法強制。
+
+**緩解（已實作）**：`status` 會掃描每個授權 checkout 的根目錄與其下一層，
+發現 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`.cursorrules`、
+`copilot-instructions.md` 時，在 workspace 觀測中標記
+`instruction_files_present`。這不會阻擋任何事——它讓操作員知道
+該 agent 正在閱讀的內容裡有針對它的指示。
 
 ---
 
@@ -165,6 +171,32 @@ Agent 的 checkout **不得**具備可用的 push 管道。
 
 修改 delivery remote 前必須重新檢視本節。
 
+### 5.4 誰執行 push
+
+驗收閘門要求 `push_ref` 與 `merge_request`，但 §5.3 規定 agent 不得具備
+push 管道。這兩者看似矛盾，解法是**執行者不同**：
+
+| 動作 | 執行者 | 理由 |
+| --- | --- | --- |
+| commit | agent | 這是它的工作產出 |
+| **push** | **leader 操作員** | 人類持有憑證，也持有交付的授權 |
+| 開 merge request | leader 操作員／人類 | 同上 |
+
+Agent 沒有憑證、沒有可達的 remote，因此**不是「被禁止 push」，而是「沒有能力 push」**。
+操作員從主機端的 checkout push，`push_ref` 因而成為它自己動作的結果，
+而不是轉述 agent 的說法。
+
+順序：
+
+```
+agent commit
+  → 操作員 task-collect（讀出已驗證欄位）
+  → 操作員審視 diff 並決定
+  → 操作員 push（此時 push_ref 才存在）
+  → 人類開 MR、授權 merge
+  → 驗收
+```
+
 ---
 
 ## 6. 證據分類
@@ -178,13 +210,28 @@ Agent 的 checkout **不得**具備可用的 push 管道。
 
 **規則**：聲稱證據不得被呈現為已驗證證據。
 
-目前 `acceptance.md` 中 `developer_tests: passed` 與 `commit_sha: abc123`
-的呈現方式完全相同，但前者是轉述、後者可查證。
-日後檢視紀錄的人無從分辨哪一項可以回頭查。
+`acceptance.md` 因此分成「已驗證證據」與「聲稱證據」兩節。
+若某次驗收沒有任何已驗證欄位（即全部轉述），紀錄會明確標示這件事，
+而不是讓它看起來與有查證的驗收一樣。
 
-**已知落差**：目前控制平面**不**自動收取已驗證證據——
-leader 操作員手動輸入所有欄位，包括本可查證的那些。
-這使 §7.1 的義務目前只能靠自律。
+### 6.1 控制平面如何收取
+
+`task-collect` 從該任務的 checkout 直接讀出四個已驗證欄位
+（`commit_sha`、`delivery_branch`、`delivery_repository`、`delivery_owner`），
+不詢問 agent、也不接受轉述。
+
+`task-transition accepted --collect <catalog>` 會把它們合併進證據，
+並在 `acceptance.md` 中分節記錄來源。
+
+收取本身是**fail closed** 的：checkout 不存在、分支與任務不符、
+worktree 有未提交變更、或分支相對 base 沒有任何 commit，
+都會拒絕而不是警告。
+
+若操作員提供的欄位與 checkout 讀出的不一致，**收取會中止**——
+那表示轉述有誤，或它所依據的回報有誤，兩者都不該被靜默覆蓋。
+
+`push_ref` 與 `merge_request` 不在收取範圍內：它們是操作員的動作（§5.4），
+因此仍屬聲稱證據。
 
 ---
 
@@ -195,8 +242,8 @@ Agent 有核心層擋著；leader 操作員只有自律。
 
 ### 7.1 不得代為聲稱
 
-- 已驗證類欄位（commit SHA、分支）必須**從 checkout 讀取後填入**，
-  不得抄錄 agent 的回報。
+- 已驗證類欄位必須以 `--collect` 由控制平面讀取，不得手動輸入。
+  手動輸入不一致的值會被拒絕（§6.1）。
 - 聲稱類欄位必須標明來源角色。
 - 不得為了通過閘門而填入未經確認的值。
 
@@ -206,7 +253,7 @@ Agent 有核心層擋著；leader 操作員只有自律。
 
 - checkout 的分支與任務相符、worktree 乾淨
 - diff 範圍未超出該 grant
-- 授權的 checkout 內未出現指示檔（§4）
+- 授權的 checkout 內未出現指示檔——`status` 會以 `instruction_files_present` 標記（§4）
 - `status` 未回報 `catalog_binding: mismatch`
 
 ---
@@ -238,20 +285,31 @@ Agent 有核心層擋著；leader 操作員只有自律。
 4. **無法防止資料外洩。** 目前 egress 允許任意公開 HTTPS
    （見 [ADR 0003](adr/0003-interim-public-tls-egress.md)）。
    放行 Discord 本身就是一條外洩管道。
-5. **無法保證 leader 操作員遵守 §7。** 目前完全靠自律。
+5. **無法保證 leader 操作員遵守 §7 的判斷義務。**
+   已驗證欄位現在由機制產生（§6.1），操作員無法填錯；
+   但「是否真的看過 diff 才決定」仍然只能靠自律。
 
-其中 (4) 與 (5) 有明確的收斂路徑；(1)(2)(3) 在此架構下沒有。
+其中 (4) 有明確的收斂路徑；(1)(2)(3) 與 (5) 的剩餘部分在此架構下沒有。
 
 ---
 
 ## 10. 後續工作
 
+**已完成**
+
 | 項目 | 消除的落差 |
 | --- | --- |
-| 控制平面自動收取已驗證證據（§6 落差） | 讓 §7.1 從自律變成機制 |
-| 掃描授權 checkout 內的指示檔（§4） | 讓 §4 從純勸告變成可偵測 |
+| `task-collect` 與 `--collect` | §7.1 從自律變成機制 |
+| `acceptance.md` 分節記錄證據來源 | §6 兩類證據不再無法分辨 |
+| `status` 偵測 checkout 內的指示檔 | §4 從純勸告變成可偵測 |
+
+**未完成**
+
+| 項目 | 消除的落差 |
+| --- | --- |
 | Cilium `toFQDNs` 網域層 egress | §9(4) |
 | Discord 派工 adapter（A007） | 目前派工仍需手動 |
+| CI evidence adapter（A009） | `ci_status` 目前純屬聲稱 |
 
 ---
 

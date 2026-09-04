@@ -18,6 +18,7 @@ from .k8s import EGRESS_MODES, render_k8s_yaml
 from .registry import WorkspaceRecord, WorkspaceRegistry
 from .backup import BackupError, COMPONENTS, LocalBackup
 from .preflight import collect_preflight
+from .evidence import EvidenceError, collect as collect_evidence, merge_into as merge_evidence
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -108,6 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
     task_transition.add_argument("state")
     task_transition.add_argument("--tasks-dir", default=".oab-control/tasks")
     task_transition.add_argument("--evidence-file")
+    task_transition.add_argument(
+        "--collect",
+        metavar="CATALOG",
+        help="read commit/branch/repository/owner from the checkout instead of trusting the evidence file",
+    )
     task_transition.add_argument("--actor", default="leader")
     task_transition.add_argument("--json", action="store_true")
     task_report = subparsers.add_parser("task-report", help="record a leader-transcribed worker report")
@@ -122,6 +128,14 @@ def build_parser() -> argparse.ArgumentParser:
     task_review.add_argument("--tasks-dir", default=".oab-control/tasks")
     task_review.add_argument("--actor", default="leader")
     task_review.add_argument("--json", action="store_true")
+    task_collect = subparsers.add_parser(
+        "task-collect",
+        help="read the verifiable acceptance fields straight from the task's checkout",
+    )
+    task_collect.add_argument("task_id")
+    task_collect.add_argument("--catalog", required=True, help="catalog that binds the task to one grant")
+    task_collect.add_argument("--tasks-dir", default=".oab-control/tasks")
+    task_collect.add_argument("--json", action="store_true")
     task_list = subparsers.add_parser("task-list", help="list durable task records")
     task_list.add_argument("--tasks-dir", default=".oab-control/tasks")
     task_list.add_argument("--json", action="store_true")
@@ -231,11 +245,24 @@ def main(argv: list[str] | None = None) -> int:
                 result = TaskStore(args.tasks_dir).create(task, actor=args.actor).as_dict()
             elif args.command == "task-transition":
                 evidence = _json_file(args.evidence_file) if args.evidence_file else {}
-                result = TaskStore(args.tasks_dir).transition(args.task_id, args.state, actor=args.actor, evidence=evidence).as_dict()
+                verified: tuple[str, ...] = ()
+                if args.collect:
+                    if not isinstance(evidence, dict):
+                        raise TaskError("evidence file must be a JSON object when collecting")
+                    store = TaskStore(args.tasks_dir)
+                    collected = collect_evidence(store.get(args.task_id), _require_catalog(args.collect))
+                    evidence = merge_evidence(evidence, collected)
+                    verified = tuple(collected.fields)
+                result = TaskStore(args.tasks_dir).transition(
+                    args.task_id, args.state, actor=args.actor, evidence=evidence, verified_fields=verified
+                ).as_dict()
             elif args.command == "task-report":
                 result = TaskStore(args.tasks_dir).write_report(args.task_id, _text_file(args.report_file), actor=args.actor).as_dict()
             elif args.command == "task-review":
                 result = TaskStore(args.tasks_dir).write_review(args.task_id, _text_file(args.review_file), actor=args.actor).as_dict()
+            elif args.command == "task-collect":
+                task = TaskStore(args.tasks_dir).get(args.task_id)
+                result = collect_evidence(task, _require_catalog(args.catalog)).as_dict()
             elif args.command == "task-list":
                 result = {"tasks": [task.as_dict() for task in TaskStore(args.tasks_dir).list()]}
             elif args.command == "worktree-materialize":
@@ -380,7 +407,7 @@ def main(argv: list[str] | None = None) -> int:
                         record="retired by explicit operator confirmation",
                     )
                 result = {"agent_id": args.agent_id, "retired": args.yes}
-        except (OSError, KeyError, TypeError, ValueError, TaskError, WorktreeError) as exc:
+        except (OSError, KeyError, TypeError, ValueError, TaskError, WorktreeError, EvidenceError) as exc:
             if args.json:
                 sys.stdout.write(json.dumps({"valid": False, "error": str(exc)}, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
             else:
@@ -476,6 +503,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         sys.stdout.write("catalog valid\n")
     return 1 if diagnostics else 0
+
+
+def _require_catalog(path: str) -> dict[str, object]:
+    """Load a catalog for evidence collection, refusing an invalid one."""
+
+    catalog, diagnostics = load_catalog(path, check_paths=False)
+    if diagnostics or catalog is None:
+        raise TaskError("catalog validation failed: " + "; ".join(f"{item.path}: {item.code}" for item in diagnostics))
+    return catalog
 
 
 def _json_file(path: str) -> object:

@@ -615,6 +615,42 @@ def _observe_kubernetes(namespace: str, *, kubeconfig: str | None = None) -> dic
     return {"state": state, "source": "kubectl", "namespace": namespace, "pods": pods}
 
 
+#: Files a coding CLI treats as instructions.  Inside a granted checkout they
+#: are project content -- which is to say, attacker-reachable content -- so
+#: their presence is worth surfacing even though nothing can stop an agent
+#: reading them.  See docs/規格-agent-工作流程.md section 4.
+_INSTRUCTION_FILENAMES = frozenset(
+    {"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".cursorrules", "copilot-instructions.md"}
+)
+
+
+def _instruction_files(checkout: Path) -> list[str]:
+    """Name instruction files a checkout carries, relative to that checkout.
+
+    Only the checkout root and one level below: deeper files are not picked up
+    by the CLIs this guards against, and walking a large repository on every
+    status call is not worth the cost.
+    """
+
+    found: list[str] = []
+    try:
+        candidates = list(checkout.iterdir())
+        for directory in (item for item in candidates if item.is_dir() and not item.name.startswith(".")):
+            try:
+                candidates.extend(directory.iterdir())
+            except OSError:
+                continue
+    except OSError:
+        return found
+    for item in candidates:
+        try:
+            if item.is_file() and item.name in _INSTRUCTION_FILENAMES:
+                found.append(str(item.relative_to(checkout)))
+        except (OSError, ValueError):
+            continue
+    return sorted(found)
+
+
 def _observe_workspace(record: Any) -> dict[str, Any]:
     """Inspect only registered worktree metadata and Git status."""
 
@@ -636,7 +672,12 @@ def _observe_workspace(record: Any) -> dict[str, Any]:
         except OperationError:
             checkouts.append({"path": str(checkout), "state": "unavailable"})
         else:
-            checkouts.append({"path": str(checkout), "branch": branch, "dirty": dirty, "state": "dirty" if dirty else "clean"})
+            observation = {"path": str(checkout), "branch": branch, "dirty": dirty, "state": "dirty" if dirty else "clean"}
+            instructions = _instruction_files(checkout)
+            if instructions:
+                observation["instruction_files"] = instructions
+            checkouts.append(observation)
+    flagged = sorted({name for item in checkouts for name in item.get("instruction_files", [])})
     if not checkouts:
         state = "empty"
     elif any(item.get("state") == "unavailable" for item in checkouts):
@@ -645,7 +686,13 @@ def _observe_workspace(record: Any) -> dict[str, Any]:
         state = "dirty"
     else:
         state = "clean"
-    return {"workspace_id": record.workspace_id, "state": state, "path": str(root), "checkouts": checkouts}
+    result = {"workspace_id": record.workspace_id, "state": state, "path": str(root), "checkouts": checkouts}
+    if flagged:
+        # Not an error: the operator decides.  But an agent that reads one of
+        # these is taking instructions from project content, which the spec
+        # says it must treat as data.
+        result["instruction_files_present"] = flagged
+    return result
 
 
 def _observe_task(task: Any, catalog: Mapping[str, Any]) -> dict[str, Any]:

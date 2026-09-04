@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from oab_control.tasks import Task, TaskError, TaskStore
+from oab_control.tasks import Task, TaskError, TaskStore, _safe_evidence
 
 
 def task(*, kind: str = "code", authorizations: bool = True) -> Task:
@@ -268,5 +268,80 @@ class TaskStoreTests(unittest.TestCase):
             Task(**{**task().as_dict(), "goal": "use token=glpat-123456789012345678"})
 
 
+class AcceptanceProvenanceTests(unittest.TestCase):
+    """A field read from the repository and a field someone typed are not the
+    same kind of claim, and the record has to say which is which."""
+
+    def accept(self, root, verified):
+        store = TaskStore(root / "tasks")
+        store.create(task(), actor="leader")
+        for state in ("assigned", "active", "review"):
+            store.transition("task-001", state, actor="leader")
+        evidence = {
+            "developer_tests": "passed", "independent_review": "ok",
+            "ci_success": "yes", "ci_status": "success", "leader_summary": "done",
+            "human_merge_authorized": True, "authorization_actor": "human",
+            "authorization_at": "2026-01-01T00:00:00Z", "authorization_scope": "merge",
+            "commit_sha": "abc123", "push_ref": "refs/heads/task/task-001",
+            "merge_request": "!1", "delivery_repository": task().repository,
+            "delivery_branch": "task/task-001", "delivery_owner": "developer",
+        }
+        store.transition("task-001", "accepted", actor="leader", evidence=evidence, verified_fields=verified)
+        return (root / "tasks" / "task-001" / "acceptance.md").read_text(encoding="utf-8")
+
+    def test_verified_and_attested_are_recorded_in_separate_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.accept(Path(directory), ("commit_sha", "delivery_branch"))
+        self.assertIn("## 已驗證證據", document)
+        self.assertIn("## 聲稱證據", document)
+        verified_block = document.split("## 已驗證證據")[1].split("## 聲稱證據")[0]
+        self.assertIn("commit_sha", verified_block)
+        self.assertIn("delivery_branch", verified_block)
+        # A claim nobody can check must not sit in the verified section.
+        self.assertNotIn("developer_tests", verified_block)
+
+    def test_an_acceptance_with_nothing_verified_says_so(self) -> None:
+        """Transcribing every field is allowed, but the record should show it."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.accept(Path(directory), ())
+        self.assertNotIn("## 已驗證證據", document)
+        self.assertIn("沒有任何已驗證證據", document)
+
+
+class EvidenceRedactionTests(unittest.TestCase):
+    """Redaction must not eat the evidence it is protecting."""
+
+    def test_task_identifiers_are_not_mistaken_for_credentials(self) -> None:
+        """`task-001` contains the substring `sk-`, which a bare pattern hits."""
+
+        safe = _safe_evidence({
+            "delivery_branch": "task/task-001",
+            "push_ref": "refs/heads/task/task-001",
+            "leader_summary": "完成 task-005 的變更",
+            "commit_sha": "9f3c1a2b",
+        })
+        self.assertEqual(safe["delivery_branch"], "task/task-001")
+        self.assertEqual(safe["push_ref"], "refs/heads/task/task-001")
+        self.assertEqual(safe["leader_summary"], "完成 task-005 的變更")
+        self.assertEqual(safe["commit_sha"], "9f3c1a2b")
+
+    def test_real_credentials_are_still_redacted(self) -> None:
+        safe = _safe_evidence({
+            "note": "sk-abcdefghijklmnopqrstuvwxyz",
+            "other": "glpat-abcdefghijklmnopqrst",
+            "url": "https://user:secretpw@gitlab.example.invalid/x.git",
+            "pem": "-----BEGIN RSA PRIVATE KEY-----",
+        })
+        for key in ("note", "other", "url", "pem"):
+            self.assertEqual(safe[key], "[REDACTED]", key)
+
+    def test_secret_shaped_keys_are_still_redacted(self) -> None:
+        safe = _safe_evidence({"api_key": "anything", "password": "x", "bot_token": "y"})
+        for key in ("api_key", "password", "bot_token"):
+            self.assertEqual(safe[key], "[REDACTED]", key)
+
+
 if __name__ == "__main__":
     unittest.main()
+
