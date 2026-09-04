@@ -4,7 +4,7 @@ from .catalog import CatalogError, load_catalog, load_reference_manifest, valida
 from .environment import EnvironmentDiagnostic, load_environment, load_environment_document, validate_environment
 from .plan import render_plan
 from .registry import RegistryError, WorkspaceRecord, WorkspaceRegistry
-from .renderer import RenderError, render_config_toml, render_openab_values, render_openab_values_yaml
+from .renderer import RenderError, render_agents_md, render_config_toml, render_openab_values, render_openab_values_yaml
 from .operations import ControlOperations, OperationError, PreparedDeployment, SnapshotStore
 from .k8s import KubernetesRenderError, agent_role_binding_name, agent_role_name, agent_service_account_name, catalog_revision, render_k8s_manifests, render_k8s_yaml
 from .secrets import SecretError, SecretReference, load_secret_values, materialize_secrets, render_secret_manifests
@@ -23,6 +23,7 @@ __all__ = [
     "WorkspaceRecord",
     "WorkspaceRegistry",
     "RenderError",
+    "render_agents_md",
     "render_config_toml",
     "render_openab_values",
     "render_openab_values_yaml",

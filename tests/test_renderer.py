@@ -77,6 +77,78 @@ class RendererTests(unittest.TestCase):
         # Per-agent, so an agent that did not opt in keeps the default.
         self.assertEqual(values["agents"]["reviewer"]["workingDir"], "/home/agent")
 
+    def test_agents_md_lists_every_mount_the_agent_actually_gets(self) -> None:
+        """A mounted checkout the agent is never told about is unreachable."""
+
+        normalized = self.normalized()
+        values = render_openab_values(normalized)
+        for agent_id, agent in normalized["agents"].items():
+            document = values["agents"][agent_id]["agentsMd"]
+            worktree = agent["worktree"]
+            for grant in agent["repository_grants"]:
+                mount = f"{worktree['container_mount_path']}/{grant['checkout_subpath']}"
+                self.assertIn(mount, document, f"{agent_id} 未被告知 {mount}")
+            # Every mount named in the file is one the values actually declare.
+            declared = {item["mountPath"] for item in values["agents"][agent_id]["extraVolumeMounts"]}
+            for line in document.splitlines():
+                if line.startswith("| `/"):
+                    path = line.split("`")[1]
+                    self.assertIn(path, declared)
+
+    def test_agents_md_states_the_access_the_mount_enforces(self) -> None:
+        normalized = self.normalized()
+        values = render_openab_values(normalized)
+        writer = values["agents"]["developer"]["agentsMd"]
+        reader = values["agents"]["reviewer"]["agentsMd"]
+        self.assertIn("可讀寫", writer)
+        self.assertNotIn("可讀寫", reader)
+        self.assertIn("唯讀", reader)
+        # A read-only agent should not be told to mind its task branch.
+        self.assertIn("你沒有任何可寫 workspace", reader)
+
+    def test_workflow_tells_each_agent_only_its_own_side(self) -> None:
+        """A worker that knows the leader's rules can reason about instructions
+        it is supposed to refuse outright."""
+
+        values = render_openab_values(self.normalized())
+        leader = values["agents"]["leader"]["agentsMd"]
+        worker = values["agents"]["developer"]["agentsMd"]
+
+        # The leader owns dispatch and the acceptance criteria.
+        self.assertIn("只有你能寫入任務紀錄", leader)
+        self.assertIn("### 驗收閘門（程式任務）", leader)
+        self.assertIn("人類明確授權 merge", leader)
+
+        # A worker is told to refuse humans.  It may know that gates exist --
+        # that is why it must not push -- but not what satisfies them, which
+        # is the leader's judgement to make.
+        self.assertIn("只接受 leader 的訊息", worker)
+        self.assertNotIn("### 驗收閘門（程式任務）", worker)
+        self.assertNotIn("人類明確授權 merge", worker)
+        self.assertNotIn("你建立任務紀錄", worker)
+
+    def test_workflow_names_the_channel_the_catalog_actually_configured(self) -> None:
+        normalized = self.normalized()
+        values = render_openab_values(normalized)
+        for agent_id, agent in normalized["agents"].items():
+            discord = agent["discord"]
+            expected = discord["entry_channel_id"] if agent["role"] == "leader" else discord["work_channel_id"]
+            self.assertIn(expected, values["agents"][agent_id]["agentsMd"])
+
+    def test_workflow_forbids_push_for_every_role(self) -> None:
+        values = render_openab_values(self.normalized())
+        for agent_id, agent in values["agents"].items():
+            if agent_id == "kiro":
+                continue
+            self.assertIn("不要 push", agent["agentsMd"], agent_id)
+
+    def test_agents_md_carries_no_secret_reference_values(self) -> None:
+        values = render_openab_values(self.normalized())
+        for agent in values["agents"].values():
+            document = agent.get("agentsMd", "")
+            self.assertNotIn("DISCORD_BOT_TOKEN", document)
+            self.assertNotIn("discord-", document)
+
     def test_unsafe_working_dir_is_rejected(self) -> None:
         for unsafe in ("home/node", "~/agent", "/home/${USER}", "/home/../etc"):
             with self.subTest(working_dir=unsafe), tempfile.TemporaryDirectory() as directory:
