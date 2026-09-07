@@ -58,7 +58,7 @@ agents:
     repository_grants:
       - repository: /home/nickhuang23/repositories/openab-council-relay
         checkout_subpath: openab-council-relay
-        access: read
+        access: write
     delivery:
       gitlab_identity_ref: gitlab-bootstrap
     egress_grants: [discord, model-provider]
