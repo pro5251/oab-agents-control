@@ -57,7 +57,8 @@
   },
   "human_user_id": "900000000000002001",
   "writers": [
-    "developer"
+    "developer",
+    "leader"
   ],
   "egress": {
     "leader": [

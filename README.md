@@ -37,7 +37,7 @@ OpenAB 多 Agent 架構的 **Local-first Control CLI**。
 | **獨立 worktree** | 為每個 agent 對每個授權 repository 做完整 `git clone`，彼此隔離，不掛載 source collection |
 | **任務治理** | leader 專屬的持久任務紀錄、明確生命週期、程式任務驗收閘門 |
 | **具防護的部署** | `deploy` 預設只輸出 plan；確認套用需明確的人類確認，備份可獨立執行 |
-| **權限分界** | 部署與寫入 Secret 使用兩份不同、各自 namespace-scoped 的 kubeconfig |
+| **權限分界** | repository 的 read/write 由 catalog grant 控制；部署與寫入 Secret 使用兩份不同、各自 namespace-scoped 的 kubeconfig |
 
 ### 設計主張
 
