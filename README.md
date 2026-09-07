@@ -216,6 +216,12 @@ bash scripts/redeploy.sh
 
 腳本遇到 Discord 403 或任何前置檢查失敗會停止，不會套用 Kubernetes 變更。
 
+部署後可用唯讀腳本確認 rollout、Pod、image 與控制平面狀態：
+
+```bash
+bash scripts/verify-deployment.sh
+```
+
 `task deploy` 會對整份 catalog 執行 Helm upgrade，但不代表四個 agent Pod
 一定全部重新建立。OpenAB chart 會計算各 agent 的 Pod template checksum，只有設定或
 image 發生變更的 agent 才會觸發 rollout：
