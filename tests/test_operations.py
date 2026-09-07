@@ -24,7 +24,7 @@ class OperationsTests(unittest.TestCase):
         return path
 
     def write_ready_environment(self, root: Path, catalog_path: Path) -> Path:
-        for name in ("control", "coordination", "repositories", "worktrees", "k3s", "backups", "external-backups"):
+        for name in ("control", "coordination", "repositories", "worktrees", "assignment-inboxes", "k3s", "backups", "external-backups"):
             (root / name).mkdir(exist_ok=True)
         document = {
             "version": 1,
@@ -35,6 +35,7 @@ class OperationsTests(unittest.TestCase):
                 "coordination_repository": str(root / "coordination"),
                 "collection_roots": [str(root / "repositories")],
                 "agent_worktrees_root": str(root / "worktrees"),
+                "assignment_inbox_root": str(root / "assignment-inboxes"),
                 "k3s_state": str(root / "k3s"),
                 "backup_target": str(root / "external-backups"),
                 "secrets_file": str(root / "secrets.yaml"),
@@ -128,6 +129,28 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(len(k8s_calls), 1)
         self.assertEqual(calls[0][2:], ("oab-agents", "oab-agents"))
         self.assertTrue(metadata["k3s_apply_performed"])
+
+    def test_confirmed_deploy_can_apply_without_a_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_path = self.write_catalog(root)
+            chart = root / "openab-chart"
+            chart.mkdir()
+            environment_path = self.write_ready_environment(root, catalog_path)
+
+            result = ControlOperations().deploy(
+                catalog_path=catalog_path,
+                snapshot_dir=root / "snapshots",
+                environment_file=environment_path,
+                chart_path=chart,
+                confirmed=True,
+                check_paths=False,
+                apply=lambda *_: "helm-ok",
+                k8s_apply=lambda *_: "k8s-ok",
+            )
+
+        self.assertTrue(result["applied"])
+        self.assertNotIn("external_backup", result)
 
     def test_confirmed_deploy_forwards_configured_deployer_kubeconfig_to_default_apply(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -425,7 +448,7 @@ class OperationsTests(unittest.TestCase):
         self.assertEqual(status["runtime"]["state"], "unknown")
         self.assertEqual(status["namespace"], "oab-agents")
 
-    def test_confirmed_deploy_requires_external_backup_before_any_apply(self) -> None:
+    def test_confirmed_deploy_rejects_partial_backup_options_before_any_apply(self) -> None:
         k8s_calls: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -433,7 +456,7 @@ class OperationsTests(unittest.TestCase):
             chart = root / "openab-chart"
             chart.mkdir()
             environment_path = self.write_ready_environment(root, catalog_path)
-            with self.assertRaisesRegex(OperationError, "external backup"):
+            with self.assertRaisesRegex(OperationError, "requires sources, output, and encryption attestation together"):
                 ControlOperations().deploy(
                     catalog_path=catalog_path,
                     snapshot_dir=root / "snapshots",
@@ -441,6 +464,7 @@ class OperationsTests(unittest.TestCase):
                     chart_path=chart,
                     confirmed=True,
                     check_paths=False,
+                    backup_output=root / "external-backups",
                     k8s_apply=lambda manifest: k8s_calls.append(str(manifest)) or "should-not-run",
                 )
             self.assertEqual(k8s_calls, [])
@@ -638,7 +662,7 @@ class DeployerScopedIsolationTests(unittest.TestCase):
             kinds = {item["kind"] for item in self.manifests(Path(directory))}
         self.assertEqual(
             kinds,
-            {"Namespace", "ServiceAccount", "Role", "RoleBinding", "NetworkPolicy"},
+            {"Namespace", "ServiceAccount", "Role", "RoleBinding", "ConfigMap", "NetworkPolicy"},
         )
 
     def test_deployer_scoped_render_drops_bootstrap_only_resources(self) -> None:
@@ -648,7 +672,7 @@ class DeployerScopedIsolationTests(unittest.TestCase):
         # The deployer Role grants no namespaces/roles/rolebindings access, so
         # re-applying them during deploy would fail closed against RBAC.
         self.assertTrue(BOOTSTRAP_ONLY_KINDS.isdisjoint(kinds))
-        self.assertEqual(kinds, {"ServiceAccount", "NetworkPolicy"})
+        self.assertEqual(kinds, {"ServiceAccount", "ConfigMap", "NetworkPolicy"})
         self.assertTrue(scoped, "deployer-scoped isolation must not be empty")
 
     def test_deployer_scoped_kinds_match_the_rendered_deployer_role(self) -> None:
@@ -662,7 +686,7 @@ class DeployerScopedIsolationTests(unittest.TestCase):
             if item["kind"] == "Role" and item["metadata"]["name"] == "oab-control-deployer"
         )
         granted = {resource for rule in role["rules"] for resource in rule["resources"]}
-        plural = {"ServiceAccount": "serviceaccounts", "NetworkPolicy": "networkpolicies"}
+        plural = {"ServiceAccount": "serviceaccounts", "ConfigMap": "configmaps", "NetworkPolicy": "networkpolicies"}
         for item in scoped:
             self.assertIn(plural[item["kind"]], granted, f"deployer cannot apply {item['kind']}")
 
@@ -838,4 +862,3 @@ def _binding_task(normalized: dict) -> Task:
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -99,6 +99,7 @@ class DiscordPolicyTests(unittest.TestCase):
         self.assertTrue(accepted.allowed)
         envelope = {
             "task_id": "task-001",
+            "target_agent_id": "developer",
             "repo": "/srv/repositories/team-a/service-x",
             "checkout_subpath": "team-a/service-x",
             "worktree_path": "/srv/worktrees/developer",
@@ -109,6 +110,8 @@ class DiscordPolicyTests(unittest.TestCase):
             "reply_to": "discord:developer-private",
         }
         self.assertEqual(dispatch_channel(value, agent_id="developer", task_envelope=envelope), worker["work_channel_id"])
+        with self.assertRaisesRegex(DiscordPolicyError, "target agent"):
+            dispatch_channel(value, agent_id="developer", task_envelope={key: item for key, item in envelope.items() if key != "target_agent_id"})
         with self.assertRaises(DiscordPolicyError):
             dispatch_channel(value, agent_id="leader", task_envelope=envelope)
 

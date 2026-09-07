@@ -140,6 +140,10 @@ class ControlOperations:
         backup_output: str | Path | None = None,
         backup_attestation: str | None = None,
     ) -> dict[str, Any]:
+        backup_options = (backup_sources, backup_output, backup_attestation)
+        backup_requested = all(option is not None for option in backup_options)
+        if any(option is not None for option in backup_options) and not backup_requested:
+            raise OperationError("pre-deploy backup requires sources, output, and encryption attestation together")
         environment_document: Mapping[str, Any] | None = None
         deployer_kubeconfig: str | None = None
         secret_materializer_kubeconfig: str | None = None
@@ -174,8 +178,6 @@ class ControlOperations:
             )
             if check_paths:
                 self._validate_materialized_worktrees(prepared.catalog)
-            if backup_sources is None or backup_output is None or backup_attestation is None:
-                raise OperationError("confirmed deploy requires external backup sources, output, and encryption attestation")
             if apply is None:
                 _require_helm_chart(chart)
             if k8s_apply is None or apply is None:
@@ -185,16 +187,18 @@ class ControlOperations:
                 if deployer_kubeconfig is not None and secret_materializer_kubeconfig == deployer_kubeconfig:
                     raise OperationError("Secret materializer kubeconfig must differ from the deployer kubeconfig")
         backup_result = None
-        if confirmed:
-            if backup_sources is None or backup_output is None or backup_attestation is None:
-                raise OperationError("confirmed deploy requires external backup sources, output, and encryption attestation")
+        if confirmed and backup_requested:
             try:
                 backup_result = LocalBackup(backup_output).create(backup_sources, encryption_attestation=backup_attestation)
             except (BackupError, OSError) as exc:
                 raise OperationError(f"external backup failed; deployment was not attempted: {exc}") from exc
+        values_yaml = render_openab_values_yaml(
+            prepared.catalog,
+            assignment_inbox_root=_assignment_inbox_root(environment_document) if confirmed else None,
+        )
         snapshot = SnapshotStore(snapshot_dir).create(catalog_path=catalog_path, plan=prepared.plan)
         values_path = snapshot / "openab-values.yaml"
-        _atomic_text(values_path, prepared.values_yaml)
+        _atomic_text(values_path, values_yaml)
         k8s_path = snapshot / "k8s-isolation.yaml"
         _atomic_text(
             k8s_path,
@@ -215,7 +219,7 @@ class ControlOperations:
             "confirmed": confirmed,
             "applied": False,
         }
-        if confirmed:
+        if backup_result is not None:
             result["external_backup"] = backup_result.as_dict()
         if not confirmed:
             result["reason"] = "human confirmation required; Kubernetes was not modified"
@@ -426,7 +430,7 @@ class ControlOperations:
             )
         )
         values_path = snapshot / "rollback-openab-values.yaml"
-        _atomic_text(values_path, prepared.values_yaml)
+        _atomic_text(values_path, render_openab_values_yaml(prepared.catalog, assignment_inbox_root=_assignment_inbox_root(environment_document)))
         k8s_path = snapshot / "rollback-k8s-isolation.yaml"
         _atomic_text(
             k8s_path,
@@ -819,6 +823,14 @@ def _egress_mode(environment: Mapping[str, Any] | None) -> str:
     k3s = environment.get("k3s") if isinstance(environment, Mapping) else None
     mode = k3s.get("egress_mode") if isinstance(k3s, Mapping) else None
     return mode if isinstance(mode, str) and mode else "proxy-only"
+
+
+def _assignment_inbox_root(environment: Mapping[str, Any] | None) -> str:
+    paths = environment.get("paths") if isinstance(environment, Mapping) else None
+    value = paths.get("assignment_inbox_root") if isinstance(paths, Mapping) else None
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise OperationError("environment contract has no assignment inbox root")
+    return value
 
 
 def _format_diagnostics(diagnostics: list[Diagnostic]) -> str:

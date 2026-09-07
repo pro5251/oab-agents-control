@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 from typing import Any, Iterable, Mapping
 
@@ -156,6 +157,7 @@ class Task:
 
         return {
             "task_id": self.task_id,
+            "target_agent_id": self.agent_id,
             "action": "execute_task",
             "kind": self.kind,
             "repo": self.repository,
@@ -239,6 +241,8 @@ class TaskStore:
         actor: str,
         evidence: Mapping[str, Any] | None = None,
         verified_fields: Iterable[str] = (),
+        catalog: Mapping[str, Any] | None = None,
+        require_verified: bool = False,
     ) -> Task:
         self._leader(actor)
         task = self.get(task_id)
@@ -248,7 +252,7 @@ class TaskStore:
             raise TaskError(f"invalid transition: {task.state} -> {state}")
         is_cancellation = state == "closed" and _has_cancellation_evidence(evidence or {})
         if state == "accepted":
-            self._require_acceptance(task, evidence or {})
+            self._require_acceptance(task, evidence or {}, verified_fields=frozenset(verified_fields), catalog=catalog, require_verified=require_verified)
         elif state == "closed" and (task.state != "accepted" or is_cancellation):
             self._require_cancellation(evidence or {})
         elif state == "closed" and task.kind == "code":
@@ -321,7 +325,20 @@ class TaskStore:
         self._event(task, actor, "review_recorded", {})
         return task
 
-    def _require_acceptance(self, task: Task, evidence: Mapping[str, Any]) -> None:
+    def _require_acceptance(
+        self,
+        task: Task,
+        evidence: Mapping[str, Any],
+        *,
+        verified_fields: frozenset[str] = frozenset(),
+        catalog: Mapping[str, Any] | None = None,
+        require_verified: bool = False,
+    ) -> None:
+        self._require_review_record(task, evidence, verified_fields=verified_fields, catalog=catalog, require_verified=require_verified)
+        if require_verified:
+            required_verified = "commit_sha" if task.kind == "code" else "artifact_sha256"
+            if required_verified not in verified_fields:
+                raise TaskError(f"acceptance requires control-plane verified {required_verified}")
         if task.kind == "code":
             required = {
                 "developer_tests",
@@ -363,6 +380,121 @@ class TaskStore:
             missing = sorted(key for key in required if not evidence.get(key))
             if missing:
                 raise TaskError("evidence acceptance missing: " + ", ".join(missing))
+
+    def _require_review_record(
+        self,
+        task: Task,
+        evidence: Mapping[str, Any],
+        *,
+        verified_fields: frozenset[str] = frozenset(),
+        catalog: Mapping[str, Any] | None = None,
+        require_verified: bool = False,
+    ) -> None:
+        review_paths = sorted((self._task_dir(task.task_id) / "assignments").glob("*/review.json"))
+        records: list[tuple[Path, dict[str, Any]]] = []
+        for path in review_paths:
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise TaskError("invalid Review Record") from exc
+            if isinstance(record, dict) and record.get("status") == "completed":
+                records.append((path, record))
+        if not records:
+            raise TaskError("acceptance requires a completed Review Record")
+        path, record = max(records, key=lambda item: str(item[1].get("received_at", "")))
+        required_text = {
+            "assignment_id", "reviewer_agent_id", "reviewer_bot_user_id", "channel_id",
+            "dispatch_message_id", "thread_id", "delivered_at", "response_message_id",
+            "response_author_bot_user_id", "received_at", "findings",
+        }
+        if any(not isinstance(record.get(key), str) or not record[key].strip() for key in required_text):
+            raise TaskError("Review Record is missing provenance")
+        if record.get("task_id") != task.task_id or record.get("reviewer_role") != "reviewer":
+            raise TaskError("Review Record reviewer binding is invalid")
+        if catalog is not None or require_verified:
+            assignment_path = path.parent / "assignment.json"
+            try:
+                assignment = json.loads(assignment_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise TaskError("Review Record has no durable assignment projection") from exc
+            if (
+                not isinstance(assignment, dict)
+                or assignment.get("assignment_id") != record.get("assignment_id")
+                or assignment.get("phase") != "review"
+                or assignment.get("target_role") != "reviewer"
+                or assignment.get("status") != "completed"
+                or assignment.get("subject") != record.get("subject")
+            ):
+                raise TaskError("Review Record assignment projection is invalid")
+        if catalog is not None:
+            agents = catalog.get("agents") if isinstance(catalog, Mapping) else None
+            reviewer = agents.get(record.get("reviewer_agent_id")) if isinstance(agents, Mapping) else None
+            discord = reviewer.get("discord") if isinstance(reviewer, Mapping) else None
+            if not isinstance(reviewer, Mapping) or reviewer.get("role") != "reviewer" or not isinstance(discord, Mapping):
+                raise TaskError("Review Record reviewer is not a current catalog reviewer")
+            if discord.get("bot_user_id") != record.get("reviewer_bot_user_id") or discord.get("work_channel_id") != record.get("channel_id"):
+                raise TaskError("Review Record reviewer Discord binding is stale")
+            if task.kind == "code":
+                self._verify_reviewer_checkout(task, subject=record.get("subject"), reviewer=reviewer)
+        if record["response_author_bot_user_id"] != record["reviewer_bot_user_id"]:
+            raise TaskError("Review Record response author is not the reviewer bot")
+        if record.get("verdict") != "passed":
+            raise TaskError("acceptance requires a passed Review Record")
+        subject = record.get("subject")
+        if not isinstance(subject, Mapping):
+            raise TaskError("Review Record subject is invalid")
+        if task.kind == "code":
+            current = evidence.get("commit_sha")
+            if subject.get("kind") != "git_commit" or not isinstance(current, str) or subject.get("commit_sha") != current:
+                record["status"] = "superseded"
+                self._write_json(path, record)
+                self._supersede_assignment(task.task_id, record.get("assignment_id", ""), "delivery subject changed")
+                self._event(task, self.leader_id, "review_superseded", {"assignment_id": record.get("assignment_id", ""), "reason": "delivery subject changed"})
+                raise TaskError("Review Record subject does not match the current delivery commit")
+        elif subject.get("kind") != "artifact" or not isinstance(subject.get("sha256"), str):
+            raise TaskError("Review Record artifact subject is invalid")
+        elif require_verified and subject.get("sha256") != evidence.get("artifact_sha256"):
+            record["status"] = "superseded"
+            self._write_json(path, record)
+            self._supersede_assignment(task.task_id, record.get("assignment_id", ""), "artifact subject changed")
+            self._event(task, self.leader_id, "review_superseded", {"assignment_id": record.get("assignment_id", ""), "reason": "artifact subject changed"})
+            raise TaskError("Review Record subject does not match the current task artifact")
+
+    def _supersede_assignment(self, task_id: str, assignment_id: str, reason: str) -> None:
+        if not isinstance(assignment_id, str) or not assignment_id:
+            return
+        # Import lazily to avoid the assignments -> tasks module cycle.
+        try:
+            from .assignments import AssignmentError, AssignmentStore
+            assignment = AssignmentStore(self.root).get(task_id, assignment_id)
+            AssignmentStore(self.root).supersede(assignment, reason=reason)
+        except (AssignmentError, OSError):
+            # The Review Record is still marked superseded; an absent projection
+            # is a hard acceptance failure on the next attempt, not a reason to
+            # hide the original subject mismatch.
+            return
+
+    @staticmethod
+    def _verify_reviewer_checkout(task: Task, *, subject: Any, reviewer: Mapping[str, Any]) -> None:
+        if not isinstance(subject, Mapping) or subject.get("kind") != "git_commit" or not isinstance(subject.get("commit_sha"), str):
+            raise TaskError("Review Record code subject is invalid")
+        worktree = reviewer.get("worktree")
+        grants = reviewer.get("repository_grants")
+        if not isinstance(worktree, Mapping) or not isinstance(grants, list):
+            raise TaskError("Review Record reviewer catalog grant is invalid")
+        matching = [grant for grant in grants if isinstance(grant, Mapping) and grant.get("repository") == task.repository and grant.get("checkout_subpath") == task.checkout_subpath]
+        if len(matching) != 1 or matching[0].get("access") != "read":
+            raise TaskError("Review Record reviewer does not have the required read grant")
+        root = Path(str(worktree.get("path"))).resolve(strict=False)
+        checkout = (root / task.checkout_subpath).resolve(strict=False)
+        if not checkout.is_relative_to(root) or not checkout.is_dir():
+            raise TaskError("reviewer checkout is not materialized")
+        try:
+            result = subprocess.run(["git", "-C", str(checkout), "rev-parse", "--verify", "HEAD^{commit}"], check=True, capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise TaskError("reviewer checkout cannot prove its subject") from exc
+        if result.stdout.strip() != subject["commit_sha"]:
+            raise TaskError("reviewer checkout HEAD does not match the Review Record subject")
 
     @staticmethod
     def _require_cancellation(evidence: Mapping[str, Any]) -> None:

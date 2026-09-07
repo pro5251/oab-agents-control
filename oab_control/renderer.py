@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Mapping
 
 import tomllib
 import yaml
 
 from .k8s import agent_service_account_name
+from .runtime_conformance import managed_codex_config
 
 
 class RenderError(ValueError):
@@ -21,6 +23,19 @@ def _toml_string(value: str) -> str:
 
 def _toml_array(values: list[str]) -> str:
     return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def render_codex_config_toml() -> str:
+    """Render the leader-only Codex capability contract."""
+
+    rendered = managed_codex_config()
+    try:
+        parsed = tomllib.loads(rendered)
+    except tomllib.TOMLDecodeError as exc:
+        raise RenderError("generated leader Codex config is invalid") from exc
+    if parsed.get("features", {}).get("multi_agent") is not False:
+        raise RenderError("leader Codex config must disable multi_agent")
+    return rendered
 
 
 def render_config_toml(agent_id: str, agent: Mapping[str, Any], *, working_dir: str | None = None) -> str:
@@ -145,8 +160,8 @@ def _workflow_section(agent_id: str, agent: Mapping[str, Any]) -> list[str]:
             "",
             "```",
             "人類 → 你的 entry channel",
-            "         ↓  你建立任務紀錄（planned → assigned）",
-            "       worker 的私有頻道（@提及該 worker）",
+            "         ↓  leader 操作員建立任務紀錄（planned → assigned）",
+            "       控制平面派送到 worker 的私有頻道",
             "         ↓  worker 執行並回報",
             "       你轉錄回報 → 要求 reviewer 獨立審查",
             "         ↓  蒐集完整證據",
@@ -154,8 +169,9 @@ def _workflow_section(agent_id: str, agent: Mapping[str, Any]) -> list[str]:
             "```",
             "",
             f"- 你的 entry channel：`{entry}`。只有 allowlist 內的人類能在這裡對你下指令。",
-            "- 派工方式：在**該 worker 的私有頻道**發訊息並 @提及它。"
-            "worker 只接受來自你、且提及它的訊息；其他一律拒絕。",
+            "- 你沒有編制內 worker 的建立或派工能力；派工由 leader 操作員透過控制平面完成。",
+            "- 不得以 local subagent 代替 researcher、developer 或 reviewer，也不得把其輸出當成驗收證據。",
+            "- 你只摘要 entry channel 中由操作員提供的已驗證結果並提出建議。",
             "- 一個 worker 同時只能有一項任務；全域同時最多兩項未結束任務。",
             "",
             "### 驗收閘門（程式任務）",
@@ -211,6 +227,7 @@ def _workflow_section(agent_id: str, agent: Mapping[str, Any]) -> list[str]:
                 "- 對 developer 的產出做**獨立**審查。你的 workspace 是唯讀的，這是刻意的。",
                 "- 審查要能被 leader 當成驗收證據，所以要具體：哪裡有問題、為什麼、風險多大。",
                 "- 沒問題也要明說，不要沉默。",
+                "- 回覆 assignment thread 時必須逐行提供：`assignment`、`subject`、`verdict`（passed／changes_requested／inconclusive）與 `findings`。",
             ]
         elif role == "researcher":
             lines += [
@@ -224,7 +241,12 @@ def _workflow_section(agent_id: str, agent: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-def render_openab_values(catalog: Mapping[str, Any], *, runtime_volume_size: str = "10Gi") -> dict[str, Any]:
+def render_openab_values(
+    catalog: Mapping[str, Any],
+    *,
+    runtime_volume_size: str = "10Gi",
+    assignment_inbox_root: str | None = None,
+) -> dict[str, Any]:
     """Return values consumable by ``charts/openab`` without Secret values."""
 
     agents: dict[str, Any] = {}
@@ -245,6 +267,24 @@ def render_openab_values(catalog: Mapping[str, Any], *, runtime_volume_size: str
                 "name": name,
                 "hostPath": {"path": f"{worktree['path']}/{subpath}", "type": "Directory"},
             })
+        if assignment_inbox_root is not None:
+            inbox_root = Path(assignment_inbox_root)
+            if not inbox_root.is_absolute() or any(part in {".", ".."} for part in inbox_root.parts):
+                raise RenderError("assignment inbox root must be an explicit absolute path")
+            mounts.append({"name": "assignment-inbox", "mountPath": "/oab/tasks", "readOnly": True})
+            volumes.append({
+                "name": "assignment-inbox",
+                "hostPath": {"path": str(inbox_root / agent_id), "type": "Directory"},
+            })
+        if agent["role"] == "leader":
+            working_dir = agent["runtime"].get("working_dir", "/home/agent")
+            mounts.append({
+                "name": "leader-codex-config",
+                "mountPath": f"{working_dir}/.codex/config.toml",
+                "subPath": "config.toml",
+                "readOnly": True,
+            })
+            volumes.append({"name": "leader-codex-config", "configMap": {"name": "leader-codex-config"}})
         agents[agent_id] = {
             "enabled": True,
             "nameOverride": agent_id,
@@ -291,8 +331,13 @@ def render_openab_values(catalog: Mapping[str, Any], *, runtime_volume_size: str
     }
 
 
-def render_openab_values_yaml(catalog: Mapping[str, Any], *, runtime_volume_size: str = "10Gi") -> str:
+def render_openab_values_yaml(
+    catalog: Mapping[str, Any],
+    *,
+    runtime_volume_size: str = "10Gi",
+    assignment_inbox_root: str | None = None,
+) -> str:
     """Serialize renderer output as a stable, non-secret Helm values document."""
 
-    values = render_openab_values(catalog, runtime_volume_size=runtime_volume_size)
+    values = render_openab_values(catalog, runtime_volume_size=runtime_volume_size, assignment_inbox_root=assignment_inbox_root)
     return yaml.safe_dump(values, allow_unicode=True, sort_keys=False, default_flow_style=False)

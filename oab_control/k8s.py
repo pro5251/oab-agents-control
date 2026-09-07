@@ -8,6 +8,8 @@ from typing import Any, Mapping
 
 import yaml
 
+from .runtime_conformance import managed_codex_config
+
 
 class KubernetesRenderError(ValueError):
     """Raised when Kubernetes isolation settings are unsafe."""
@@ -108,6 +110,17 @@ def render_k8s_manifests(
             },
         }
     ]
+    manifests.append({
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": "leader-codex-config",
+            "namespace": namespace,
+            "labels": {"oab-agents.io/component": "leader-runtime-conformance"},
+        },
+        "immutable": True,
+        "data": {"config.toml": managed_codex_config()},
+    })
     revision = catalog_revision(catalog)
     for agent_id in sorted(catalog["agents"]):
         _safe_name(agent_id)

@@ -241,7 +241,7 @@
               <tr><td><b>產生部署產物</b></td><td>把 catalog 投影成 OpenAB Helm values 與 K8s 隔離資源:每 agent 一個無權限 ServiceAccount、default-deny NetworkPolicy、唯讀 root filesystem</td></tr>
               <tr><td><b>獨立 worktree</b></td><td>為每個 agent 對每個授權 repo 做完整 <span class="mono">git clone</span>(非 linked worktree),彼此隔離;delivery remote 由操作員提供</td></tr>
               <tr><td><b>任務治理</b></td><td>leader 專屬的持久任務紀錄 + 明確生命週期 + 驗收閘門(測試、獨立 review、CI success、人類 merge 授權、commit / push / MR 證據齊全才能 close)</td></tr>
-              <tr><td><b>具防護的部署</b></td><td><span class="mono">deploy</span> / <span class="mono">rollback</span> 預設只出 plan;實際套用需要 ready 環境合約 + chart 路徑 + <b>先完成外部加密備份</b> + 人類確認</td></tr>
+              <tr><td><b>具防護的部署</b></td><td><span class="mono">deploy</span> / <span class="mono">rollback</span> 預設只出 plan；實際套用需要 ready 環境合約 + chart 路徑 + 人類確認，外部加密備份為選用步驟</td></tr>
               <tr><td><b>權限分界</b></td><td>部署用與寫 Secret 用必須是兩份不同、各自 namespace-scoped 的 kubeconfig;拒絕使用 K3s admin config</td></tr>
             </tbody>
           </table>
@@ -399,7 +399,7 @@ flowchart TD
           <figcaption>圖 2 — 端到端操作流程</figcaption>
         </figure>
         <ul class="notes">
-          <li>危險操作一律在 <span class="mono">preflight → backup → snapshot → 人類確認</span> 閘門之後。</li>
+          <li>危險操作一律在 <span class="mono">preflight → snapshot → 人類確認</span> 閘門之後；backup 可在部署前獨立執行。</li>
           <li>備份失敗即中止部署,不會呼叫任何 K3s / Helm 指令。</li>
           <li>部署用與寫 Secret 用必須是兩份不同、各自 namespace-scoped 的 kubeconfig。</li>
         </ul>

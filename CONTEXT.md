@@ -103,18 +103,41 @@ Catalog 中一筆「某 agent 可以存取某個 repository 的某個 checkout�
 
 ## 任務
 
-### Task record
+### Delivery task（交付任務）
 
-由 leader 操作員建立的持久紀錄，綁定一個 agent、一個 grant、一個分支。
-它記錄意圖與證據，**不授予任何權限**。
+由 leader 操作員建立的持久工作單位，擁有一個交付 owner、一個 grant 與一個交付分支。
+它記錄最終成果與驗收生命週期，**不授予任何權限**。
+_避免：用「task」同時指某一次派工。_
 
-### Envelope
+### Work assignment（工作指派）
 
-Task record 中用於派工的欄位子集。不含任何憑證。
+Delivery task 底下交給單一 target agent 的一棒工作；其身分、phase、subject 與路由一經建立便不可改寫。
+同一個 task 可以先有 execution assignment，再有一或多個依序產生的 review assignment。
+_避免：reassignment、第二個 reviewer task。_
 
-### Brief
+### Review subject（審查標的）
 
-任務建立時產生的人類可讀說明，寫給 agent 看。
+Reviewer 被要求審查的不可變內容識別：code task 使用精確 commit SHA，其他 task 使用控制平面封存內容的 SHA-256。
+_避免：branch 最新狀態、未綁版本的「developer 產出」。_
+
+### Review record（審查紀錄）
+
+將 reviewer 身分、review subject、Discord provenance、verdict 與 findings 綁在一起的持久紀錄。
+它能證明誰針對哪個版本回報，但不能證明審查品質。
+
+### Assignment envelope
+
+Work assignment 中用於派工的不可變欄位子集。不含任何憑證或 goal／scope 全文。
+
+### Assignment brief
+
+由控制平面從 task 與 assignment 產生、寫給 target agent 的完整說明。
+它存放在 repository 之外的唯讀 agent inbox。
+
+### Agent inbox
+
+由控制平面寫入、只對單一 agent 唯讀掛載的 assignment 指示區。
+它不是 Git checkout，也不是 agent 可回寫的回報管道。
 
 ### Gate（閘門）
 
@@ -128,27 +151,29 @@ Task record 中用於派工的欄位子集。不含任何憑證。
 - OpenAB 的 `openab-core/src/dispatch.rs` — ACP turn 的批次排程。與本專案無關。
 - `discord_policy.dispatch_channel()` — **解析**某個 worker 的目標頻道。
   它只回答「該送到哪」，不送任何東西。
-- **派工** — leader 操作員把一份 task record 的路由摘要，
-  以 leader bot 的身分送進該 worker 的私有頻道。
+- **派工** — leader 操作員把一份 assignment envelope，
+  透過控制平面以 leader bot 的身分送進該 worker 的私有頻道。
 
 單獨寫「派工」時一律指第三個。指第二個時寫「解析派工頻道」。
 
 ### 派工訊息（Dispatch message）
 
 送進 worker 私有頻道的那一則 Discord 訊息。內容是**路由摘要**，
-不是完整 brief：它提及該 worker 的 bot、標明任務編號、分支與 checkout 邊界。
+不是完整 brief：它提及該 worker 的 bot、標明 task／assignment、review subject 與 inbox 路徑。
 
 它刻意不含 task record 的 goal／scope 全文——那些文字可能來自
-被注入的來源，不應該由控制平面轉貼進 Discord。詳見
-[任務指示檔](#任務指示檔taskmd)。
+被注入的來源，不應該由控制平面轉貼進 Discord。完整內容只進 agent inbox。
 
-### 任務指示檔（TASK.md）
+### Dispatch attempt（派工嘗試）
 
-`worktree-materialize` 寫進該 task 分支 checkout 根目錄的檔案，
-內含完整 brief。Worker 在容器內直接讀它，內容不經過 Discord。
+控制平面對一個 work assignment 的單次外送嘗試。每次嘗試有唯一 nonce；
+`delivered` 只表示 Discord 已接受訊息，逾時且無法判定時是 `unknown`。
+_避免：把 HTTP timeout 直接叫作失敗或成功。_
 
-它是 checkout 內的檔案，因此既有的指示檔偵測（`status` 的
-`instruction_files`）自然涵蓋它。
+### Acknowledgement（收件確認）
+
+Target agent 以自己的 Discord bot 身分，在該 assignment 的 thread 中留下可關聯回覆。
+它與 dispatch、開始工作及完成工作是不同事實。
 
 ---
 

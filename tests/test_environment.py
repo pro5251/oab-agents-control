@@ -18,6 +18,7 @@ def environment(root: Path) -> dict:
             "coordination_repository": str(root / "coordination"),
             "collection_roots": [str(root / "repositories")],
             "agent_worktrees_root": str(root / "worktrees"),
+            "assignment_inbox_root": str(root / "assignment-inboxes"),
             "k3s_state": str(root / "k3s"),
             "backup_target": str(root / "backups"),
             "secrets_file": str(root / "secrets.yaml"),
@@ -41,7 +42,7 @@ class EnvironmentTests(unittest.TestCase):
     def test_ready_contract_requires_existing_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for path in ("control", "coordination", "repositories", "worktrees", "k3s", "backups"):
+            for path in ("control", "coordination", "repositories", "worktrees", "assignment-inboxes", "k3s", "backups"):
                 (root / path).mkdir()
             (root / "catalog.yaml").write_text("version: 1\n", encoding="utf-8")
             errors = validate_environment(environment(root))

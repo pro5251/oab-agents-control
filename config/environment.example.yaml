@@ -18,6 +18,7 @@ paths:
   collection_roots:
     - /home/nickhuang23/repositories
   agent_worktrees_root: /home/nickhuang23/oab-agent-worktrees
+  assignment_inbox_root: /home/nickhuang23/oab-assignment-inboxes
   k3s_state: /home/nickhuang23/oab-k3s-state
   backup_target: /home/nickhuang23/oab-agent-backups
   secrets_file: /home/nickhuang23/oab-agents-control/config/secrets.yaml

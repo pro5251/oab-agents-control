@@ -8,7 +8,7 @@ import unittest
 import yaml
 
 from oab_control.catalog import validate_catalog
-from oab_control.renderer import render_config_toml, render_openab_values, render_openab_values_yaml
+from oab_control.renderer import render_codex_config_toml, render_config_toml, render_openab_values, render_openab_values_yaml
 from test_catalog import catalog
 
 
@@ -160,6 +160,22 @@ class RendererTests(unittest.TestCase):
                     any(item.path == "$.agents.developer.runtime.working_dir" for item in diagnostics),
                     diagnostics,
                 )
+
+    def test_assignment_inboxes_are_isolated_and_leader_codex_config_is_read_only(self) -> None:
+        normalized = self.normalized()
+        values = render_openab_values(normalized, assignment_inbox_root="/srv/oab/assignment-inboxes")
+        leader = values["agents"]["leader"]
+        developer = values["agents"]["developer"]
+        config = tomllib.loads(render_codex_config_toml())
+
+        self.assertFalse(config["features"]["multi_agent"])
+        self.assertEqual(config["sandbox_mode"], "danger-full-access")
+        self.assertEqual(config["approval_policy"], "never")
+        self.assertIn({"name": "assignment-inbox", "mountPath": "/oab/tasks", "readOnly": True}, developer["extraVolumeMounts"])
+        self.assertIn({"name": "assignment-inbox", "hostPath": {"path": "/srv/oab/assignment-inboxes/developer", "type": "Directory"}}, developer["extraVolumes"])
+        leader_config_path = f'{normalized["agents"]["leader"]["runtime"]["working_dir"]}/.codex/config.toml'
+        self.assertIn({"name": "leader-codex-config", "mountPath": leader_config_path, "subPath": "config.toml", "readOnly": True}, leader["extraVolumeMounts"])
+        self.assertFalse(any(item.get("name") == "leader-codex-config" for item in developer["extraVolumeMounts"]))
 
 
 if __name__ == "__main__":

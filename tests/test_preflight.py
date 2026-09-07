@@ -14,7 +14,7 @@ class PreflightTests(unittest.TestCase):
     def test_reports_ready_without_exposing_kubeconfig_paths(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for path in ("control", "coordination", "repositories", "worktrees", "k3s", "backups", "chart"):
+            for path in ("control", "coordination", "repositories", "worktrees", "assignment-inboxes", "k3s", "backups", "chart"):
                 (root / path).mkdir()
             (root / "catalog.yaml").write_text("version: 1\n", encoding="utf-8")
             (root / "chart" / "Chart.yaml").write_text("apiVersion: v2\nname: test\nversion: 0.1.0\n", encoding="utf-8")

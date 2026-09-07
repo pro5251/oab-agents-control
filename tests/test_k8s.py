@@ -34,6 +34,9 @@ class KubernetesRenderTests(unittest.TestCase):
         self.assertEqual(len(role_bindings), 6)
         self.assertTrue(all(item["automountServiceAccountToken"] is False for item in service_accounts))
         self.assertEqual(next(item for item in roles if item["metadata"]["name"] == "oab-control-deployer")["rules"][0]["resources"], ["configmaps", "persistentvolumeclaims", "serviceaccounts"])
+
+        leader_config = next(item for item in manifests if item["kind"] == "ConfigMap" and item["metadata"]["name"] == "leader-codex-config")
+        self.assertIn("multi_agent = false", leader_config["data"]["config.toml"])
         self.assertNotIn("secrets", str(next(item for item in roles if item["metadata"]["name"] == "oab-control-deployer")["rules"]))
         self.assertTrue(all(item["metadata"]["labels"]["oab-agents.io/catalog-revision"] == catalog_revision(catalog) for item in service_accounts))
         self.assertEqual(len(policies), 2)
@@ -49,9 +52,9 @@ class KubernetesRenderTests(unittest.TestCase):
 
     def test_yaml_is_multi_document_and_bad_proxy_values_fail(self) -> None:
         rendered = render_k8s_yaml(self.normalized())
-        self.assertEqual(rendered.count("apiVersion:"), 21)
+        self.assertEqual(rendered.count("apiVersion:"), 22)
         documents = list(yaml.safe_load_all(rendered))
-        self.assertEqual(len(documents), 21)
+        self.assertEqual(len(documents), 22)
         with self.assertRaises(KubernetesRenderError):
             render_k8s_manifests(self.normalized(), proxy_port=0)
         with self.assertRaises(KubernetesRenderError):

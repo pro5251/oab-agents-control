@@ -1,10 +1,27 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tempfile
 import unittest
 
 from oab_control.tasks import Task, TaskError, TaskStore, _safe_evidence
+
+
+def passed_review(root: Path, task_id: str, subject: str, *, kind: str = "git_commit") -> None:
+    directory = root / task_id / "assignments" / "review-001"
+    directory.mkdir(parents=True)
+    record = {
+        "task_id": task_id, "assignment_id": "review-001",
+        "reviewer_agent_id": "reviewer", "reviewer_role": "reviewer",
+        "reviewer_bot_user_id": "1544236919268048936",
+        "subject": {"kind": kind, "commit_sha": subject} if kind == "git_commit" else {"kind": kind, "sha256": subject},
+        "channel_id": "review-channel", "dispatch_message_id": "dispatch-1", "thread_id": "thread-1",
+        "delivered_at": "2026-01-01T00:00:00Z", "response_message_id": "response-1",
+        "response_author_bot_user_id": "1544236919268048936", "received_at": "2026-01-01T00:01:00Z",
+        "verdict": "passed", "findings": "No blocking findings.", "status": "completed",
+    }
+    (directory / "review.json").write_text(json.dumps(record), encoding="utf-8")
 
 
 def task(*, kind: str = "code", authorizations: bool = True) -> Task:
@@ -49,6 +66,7 @@ class TaskStoreTests(unittest.TestCase):
         self.assertIn("origin/develop", brief)
         self.assertEqual(envelope["checkout_subpath"], "team-a/service-x")
         self.assertEqual(envelope["reply_to"], "discord:developer-private")
+        self.assertEqual(envelope["target_agent_id"], "developer")
 
     def test_invalid_actor_transition_and_second_active_task_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -102,6 +120,9 @@ class TaskStoreTests(unittest.TestCase):
             store.transition("task-001", "active", actor="leader")
             store.transition("task-001", "review", actor="leader")
             store.write_review("task-001", "Independent review passed.", actor="leader")
+            with self.assertRaisesRegex(TaskError, "Review Record"):
+                store.transition("task-001", "accepted", actor="leader", evidence=evidence)
+            passed_review(store.root, "task-001", evidence["commit_sha"])
             accepted = store.transition("task-001", "accepted", actor="leader", evidence=evidence)
             acceptance = (Path(directory) / "tasks" / "task-001" / "acceptance.md").read_text(encoding="utf-8")
             with self.assertRaisesRegex(TaskError, "agent already owns an active task"):
@@ -147,6 +168,7 @@ class TaskStoreTests(unittest.TestCase):
             store.create(research, actor="leader")
             for state in ("assigned", "active", "review"):
                 store.transition("task-002", state, actor="leader")
+            passed_review(store.root, "task-002", "c" * 64, kind="artifact")
             accepted = store.transition(
                 "task-002",
                 "accepted",
@@ -181,6 +203,7 @@ class TaskStoreTests(unittest.TestCase):
             store.create(task(), actor="leader")
             for state in ("assigned", "active", "review"):
                 store.transition("task-001", state, actor="leader")
+            passed_review(store.root, "task-001", evidence["commit_sha"])
             with self.assertRaisesRegex(TaskError, "delivery evidence"):
                 store.transition("task-001", "accepted", actor="leader", evidence=evidence)
 
@@ -242,6 +265,7 @@ class TaskStoreTests(unittest.TestCase):
             store.create(task(), actor="leader")
             for state in ("assigned", "active", "review"):
                 store.transition("task-001", state, actor="leader")
+            passed_review(root, "task-001", evidence["commit_sha"])
             store.transition("task-001", "accepted", actor="leader", evidence=evidence)
             closed = store.transition(
                 "task-001",
@@ -282,10 +306,11 @@ class AcceptanceProvenanceTests(unittest.TestCase):
             "ci_success": "yes", "ci_status": "success", "leader_summary": "done",
             "human_merge_authorized": True, "authorization_actor": "human",
             "authorization_at": "2026-01-01T00:00:00Z", "authorization_scope": "merge",
-            "commit_sha": "abc123", "push_ref": "refs/heads/task/task-001",
+            "commit_sha": "a" * 40, "push_ref": "refs/heads/task/task-001",
             "merge_request": "!1", "delivery_repository": task().repository,
             "delivery_branch": "task/task-001", "delivery_owner": "developer",
         }
+        passed_review(store.root, "task-001", evidence["commit_sha"])
         store.transition("task-001", "accepted", actor="leader", evidence=evidence, verified_fields=verified)
         return (root / "tasks" / "task-001" / "acceptance.md").read_text(encoding="utf-8")
 
@@ -344,4 +369,3 @@ class EvidenceRedactionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

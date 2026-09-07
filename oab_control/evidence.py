@@ -19,6 +19,7 @@ see docs/規格-agent-工作流程.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 import os
 from pathlib import Path
 import subprocess
@@ -87,13 +88,26 @@ def locate_checkout(task: Any, catalog: Mapping[str, Any]) -> Path:
     return checkout
 
 
-def collect(task: Any, catalog: Mapping[str, Any]) -> CollectedEvidence:
+def collect(task: Any, catalog: Mapping[str, Any], *, tasks_root: str | Path | None = None) -> CollectedEvidence:
     """Read the verifiable acceptance fields, failing closed on any mismatch.
 
     A refusal here is informative: it means the checkout does not support the
     claim the operator is about to make, which is exactly when a gate should
     stop rather than warn.
     """
+
+    if task.kind != "code":
+        if tasks_root is None:
+            raise EvidenceError("non-code evidence collection requires the task store root")
+        report = (Path(tasks_root).resolve(strict=True) / task.task_id / "report.md").resolve(strict=True)
+        task_dir = (Path(tasks_root).resolve(strict=True) / task.task_id)
+        if not report.is_file() or not report.is_relative_to(task_dir):
+            raise EvidenceError("task report is not materialized")
+        digest = sha256(report.read_bytes()).hexdigest()
+        return CollectedEvidence(
+            fields={"artifact_sha256": digest},
+            context={"artifact_path": str(report), "artifact_name": report.name},
+        )
 
     checkout = locate_checkout(task, catalog)
     if not checkout.is_dir() or not (checkout / ".git").exists():

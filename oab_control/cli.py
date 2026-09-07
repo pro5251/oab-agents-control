@@ -6,9 +6,11 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from urllib.parse import unquote, urlparse
+import uuid
 
 from .catalog import load_catalog, load_reference_manifest, normalized_json
-from .environment import load_environment
+from .environment import load_environment, load_environment_document
 from .plan import render_plan
 from .renderer import render_openab_values_yaml
 from .operations import ControlOperations, OperationError
@@ -19,6 +21,15 @@ from .registry import WorkspaceRecord, WorkspaceRegistry
 from .backup import BackupError, COMPONENTS, LocalBackup
 from .preflight import collect_preflight
 from .evidence import EvidenceError, collect as collect_evidence, merge_into as merge_evidence
+from .assignments import AssignmentError, AssignmentStore
+from .artifacts import ArtifactError, snapshot_task_artifact
+from .review_handoff import HandoffError, prepare_code_review, resolve_commit
+from .discord_dispatch import DispatchError, dispatch_assignment, reconcile_assignment
+from .discord_receipts import ReceiptError, sync_assignment
+from .discord_api import DiscordApi
+from .discord_preflight import run_preflight
+from .runtime_conformance import observe_codex_features, managed_codex_config_digest
+from .secrets import SecretError, load_secret_values
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,9 +81,9 @@ def build_parser() -> argparse.ArgumentParser:
     deploy.add_argument("--release", default="oab-agents")
     deploy.add_argument("--namespace", default="oab-agents")
     deploy.add_argument("--secrets-file")
-    deploy.add_argument("--backup-sources", help="JSON path map for the external backup preflight; required with --yes")
-    deploy.add_argument("--backup-output", help="external backup target root; required with --yes")
-    deploy.add_argument("--backup-attestation", help="short non-secret statement that the backup target is encrypted; required with --yes")
+    deploy.add_argument("--backup-sources", help="optional JSON path map for a pre-deploy external backup; use with both other backup options")
+    deploy.add_argument("--backup-output", help="optional external backup target root; use with both other backup options")
+    deploy.add_argument("--backup-attestation", help="optional non-secret encryption statement; use with both other backup options")
     deploy.add_argument("--no-path-check", action="store_true")
     deploy.add_argument("--check-git", action="store_true")
     deploy.add_argument("--yes", action="store_true", help="confirm the K3s mutation")
@@ -139,6 +150,51 @@ def build_parser() -> argparse.ArgumentParser:
     task_list = subparsers.add_parser("task-list", help="list durable task records")
     task_list.add_argument("--tasks-dir", default=".oab-control/tasks")
     task_list.add_argument("--json", action="store_true")
+    assignment_prepare = subparsers.add_parser("assignment-prepare", help="prepare a control-plane Work Assignment")
+    assignment_prepare.add_argument("task_id")
+    assignment_prepare.add_argument("--phase", required=True, choices=("execution", "review"))
+    assignment_prepare.add_argument("--agent", required=True)
+    assignment_prepare.add_argument("--catalog", required=True)
+    assignment_prepare.add_argument("--environment", required=True)
+    assignment_prepare.add_argument("--remotes-file", required=True)
+    assignment_prepare.add_argument("--tasks-dir", default=".oab-control/tasks")
+    assignment_prepare.add_argument("--no-path-check", action="store_true")
+    assignment_prepare.add_argument("--json", action="store_true")
+    assignment_dispatch = subparsers.add_parser("assignment-dispatch", help="preview and explicitly dispatch a Work Assignment")
+    assignment_dispatch.add_argument("assignment_id")
+    assignment_dispatch.add_argument("--catalog", required=True)
+    assignment_dispatch.add_argument("--tasks-dir", default=".oab-control/tasks")
+    assignment_dispatch.add_argument("--secrets-file", required=True)
+    assignment_dispatch.add_argument("--yes", action="store_true")
+    assignment_dispatch.add_argument("--json", action="store_true")
+    assignment_sync = subparsers.add_parser("assignment-sync", help="pull the target bot response from an assignment thread")
+    assignment_sync.add_argument("assignment_id")
+    assignment_sync.add_argument("--catalog", required=True)
+    assignment_sync.add_argument("--tasks-dir", default=".oab-control/tasks")
+    assignment_sync.add_argument("--secrets-file", required=True)
+    assignment_sync.add_argument("--json", action="store_true")
+    assignment_reconcile = subparsers.add_parser("assignment-reconcile", help="resolve an unknown Discord dispatch by nonce")
+    assignment_reconcile.add_argument("assignment_id")
+    assignment_reconcile.add_argument("--catalog", required=True)
+    assignment_reconcile.add_argument("--tasks-dir", default=".oab-control/tasks")
+    assignment_reconcile.add_argument("--secrets-file", required=True)
+    assignment_reconcile.add_argument("--json", action="store_true")
+    assignment_prune = subparsers.add_parser("assignment-prune", help="explicitly prune closed assignment artifacts")
+    assignment_prune.add_argument("assignment_id")
+    assignment_prune.add_argument("--tasks-dir", default=".oab-control/tasks")
+    assignment_prune.add_argument("--environment", required=True)
+    assignment_prune.add_argument("--remotes-file")
+    assignment_prune.add_argument("--yes", action="store_true")
+    assignment_prune.add_argument("--json", action="store_true")
+    discord_preflight = subparsers.add_parser("discord-preflight", help="online Discord channel capability preflight")
+    discord_preflight.add_argument("--catalog", required=True)
+    discord_preflight.add_argument("--secrets-file", required=True)
+    discord_preflight.add_argument("--json", action="store_true")
+    runtime = subparsers.add_parser("runtime-conformance", help="verify a leader Codex feature observation")
+    runtime.add_argument("--features-file", required=True, help="captured output of codex features list")
+    runtime.add_argument("--image-digest", required=True)
+    runtime.add_argument("--config-digest", default=managed_codex_config_digest())
+    runtime.add_argument("--json", action="store_true")
     materialize = subparsers.add_parser("worktree-materialize", help="materialize independent Git checkouts for one agent")
     materialize.add_argument("catalog", help="path to the versioned YAML catalog")
     materialize.add_argument("agent_id")
@@ -201,6 +257,32 @@ def main(argv: list[str] | None = None) -> int:
         result = collect_preflight(args.environment, chart_path=args.chart)
         sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         return 0 if result["ready"] else 1
+    if args.command == "discord-preflight":
+        try:
+            catalog = _require_catalog(args.catalog)
+            agents = catalog["agents"]
+            clients = {}
+            values = load_secret_values(args.secrets_file)
+            for agent_id, agent in agents.items():
+                if not isinstance(agent, dict):
+                    raise AssignmentError("invalid agent catalog entry")
+                reference = agent["discord"]["bot_secret_ref"]
+                if reference not in values:
+                    raise SecretError(f"unresolved Discord Secret reference: {reference}")
+                clients[agent_id] = DiscordApi(values[reference])
+            result = run_preflight(catalog, clients)
+        except (AssignmentError, SecretError, OSError, ValueError) as exc:
+            result = {"ready": False, "errors": [str(exc)]}
+        sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        return 0 if result["ready"] else 1
+    if args.command == "runtime-conformance":
+        try:
+            output = Path(args.features_file).read_text(encoding="utf-8")
+            result = observe_codex_features(output, image_digest=args.image_digest, config_digest=args.config_digest)
+        except OSError as exc:
+            result = {"leader_subagents": "non_conformant", "error": type(exc).__name__}
+        sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        return 0 if result.get("leader_subagents") == "conformant" else 1
     if args.command in {"backup", "restore"}:
         try:
             if args.command == "backup":
@@ -223,9 +305,98 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True, default=str) + "\n")
         return 0
-    if args.command.startswith("task-") or args.command.startswith("worktree-"):
+    if args.command.startswith("task-") or args.command.startswith("worktree-") or args.command.startswith("assignment-"):
         try:
-            if args.command == "task-create":
+            if args.command == "assignment-prepare":
+                catalog, diagnostics = load_catalog(args.catalog, check_paths=not args.no_path_check)
+                if diagnostics or catalog is None:
+                    raise AssignmentError("catalog validation failed: " + "; ".join(f"{item.path}: {item.code}" for item in diagnostics))
+                environment, environment_errors = load_environment_document(args.environment)
+                if environment_errors or not isinstance(environment, dict):
+                    raise AssignmentError("unable to load environment contract")
+                environment_diagnostics = load_environment(args.environment, require_ready=True)
+                if environment_diagnostics:
+                    raise AssignmentError("environment contract is not ready")
+                inbox_root = environment["paths"]["assignment_inbox_root"]
+                subject = None
+                if args.phase == "review":
+                    task_record = TaskStore(args.tasks_dir).get(args.task_id)
+                    target = catalog["agents"].get(args.agent)
+                    if not isinstance(target, dict):
+                        raise AssignmentError("unknown assignment target")
+                    if task_record.kind == "code":
+                        remote_document = _json_file(args.remotes_file)
+                        if not isinstance(remote_document, dict) or not isinstance(remote_document.get(task_record.repository), str):
+                            raise AssignmentError("review handoff has no delivery mirror for the task repository")
+                        mirror = _local_file_remote(remote_document[task_record.repository])
+                        source_checkout = Path(task_record.worktree_path) / task_record.checkout_subpath
+                        reviewer_checkout = Path(target["worktree"]["path"]) / task_record.checkout_subpath
+                        subject = prepare_code_review(
+                            source_checkout=source_checkout, reviewer_checkout=reviewer_checkout, mirror=mirror,
+                            task_id=task_record.task_id, expected_branch=task_record.branch,
+                            base_sha=resolve_commit(source_checkout, task_record.base_branch), base_ref=task_record.base_branch,
+                        )
+                        subject["repository"] = task_record.repository
+                    else:
+                        subject = snapshot_task_artifact(args.tasks_dir, task_record.task_id)
+                result = AssignmentStore(args.tasks_dir).prepare(
+                    task_id=args.task_id, phase=args.phase, target_agent_id=args.agent,
+                    catalog=catalog, inbox_root=inbox_root, subject=subject,
+                ).as_dict()
+            elif args.command == "assignment-dispatch":
+                catalog = _require_catalog(args.catalog)
+                clients = _discord_clients(catalog, args.secrets_file)
+                preflight = run_preflight(catalog, clients)
+                if not preflight.get("ready"):
+                    raise DispatchError("Discord preflight failed: " + "; ".join(preflight.get("errors", [])))
+                leader_id = _leader_agent_id(catalog)
+                api = clients[leader_id]
+                nonce = uuid.uuid4().hex
+                preview = dispatch_assignment(store=AssignmentStore(args.tasks_dir), assignment_id=args.assignment_id, catalog=catalog, confirmed=False, send=api.send, nonce_factory=lambda: nonce)
+                if not args.yes:
+                    result = preview
+                else:
+                    sys.stderr.write(json.dumps({"preview": preview}, ensure_ascii=False, sort_keys=True) + "\n")
+                    result = dispatch_assignment(store=AssignmentStore(args.tasks_dir), assignment_id=args.assignment_id, catalog=catalog, confirmed=True, send=api.send, nonce_factory=lambda: nonce)
+            elif args.command == "assignment-sync":
+                catalog = _require_catalog(args.catalog)
+                clients = _discord_clients(catalog, args.secrets_file)
+                preflight = run_preflight(catalog, clients)
+                if not preflight.get("ready"):
+                    raise ReceiptError("Discord preflight failed: " + "; ".join(preflight.get("errors", [])))
+                api = clients[_leader_agent_id(catalog)]
+                result = sync_assignment(
+                    store=AssignmentStore(args.tasks_dir), assignment_id=args.assignment_id, catalog=catalog,
+                    discover_thread=api.discover_thread, read_messages=api.read_messages,
+                )
+            elif args.command == "assignment-reconcile":
+                catalog = _require_catalog(args.catalog)
+                clients = _discord_clients(catalog, args.secrets_file)
+                preflight = run_preflight(catalog, clients)
+                if not preflight.get("ready"):
+                    raise DispatchError("Discord preflight failed: " + "; ".join(preflight.get("errors", [])))
+                api = clients[_leader_agent_id(catalog)]
+                result = reconcile_assignment(
+                    store=AssignmentStore(args.tasks_dir), assignment_id=args.assignment_id,
+                    catalog=catalog, find_messages=api.find_messages,
+                )
+            elif args.command == "assignment-prune":
+                environment, environment_errors = load_environment_document(args.environment)
+                if environment_errors or not isinstance(environment, dict) or load_environment(args.environment, require_ready=True):
+                    raise AssignmentError("environment contract is not ready")
+                store = AssignmentStore(args.tasks_dir)
+                assignment = store.find(args.assignment_id)
+                mirror = None
+                if assignment.subject.get("review_ref"):
+                    if not args.remotes_file:
+                        raise AssignmentError("code review prune requires --remotes-file")
+                    task = TaskStore(args.tasks_dir).get(assignment.task_id)
+                    remotes = _json_file(args.remotes_file)
+                    if not isinstance(remotes, dict) or not isinstance(remotes.get(task.repository), str):
+                        raise AssignmentError("review prune has no delivery mirror for the task repository")
+                    mirror = _local_file_remote(remotes[task.repository])
+                result = store.prune(assignment, inbox_root=environment["paths"]["assignment_inbox_root"], mirror=mirror, confirmed=args.yes)
+            elif args.command == "task-create":
                 task = _task_from_file(args.task_file)
                 secret_refs = identity_refs = None
                 reference_diagnostics = []
@@ -246,15 +417,20 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "task-transition":
                 evidence = _json_file(args.evidence_file) if args.evidence_file else {}
                 verified: tuple[str, ...] = ()
+                collected_catalog = None
                 if args.collect:
                     if not isinstance(evidence, dict):
                         raise TaskError("evidence file must be a JSON object when collecting")
                     store = TaskStore(args.tasks_dir)
-                    collected = collect_evidence(store.get(args.task_id), _require_catalog(args.collect))
+                    collected_catalog = _require_catalog(args.collect)
+                    collected = collect_evidence(store.get(args.task_id), collected_catalog, tasks_root=args.tasks_dir)
                     evidence = merge_evidence(evidence, collected)
                     verified = tuple(collected.fields)
+                if args.state == "accepted" and not args.collect:
+                    raise TaskError("acceptance requires --collect with the current catalog")
                 result = TaskStore(args.tasks_dir).transition(
-                    args.task_id, args.state, actor=args.actor, evidence=evidence, verified_fields=verified
+                    args.task_id, args.state, actor=args.actor, evidence=evidence, verified_fields=verified,
+                    catalog=collected_catalog, require_verified=args.state == "accepted",
                 ).as_dict()
             elif args.command == "task-report":
                 result = TaskStore(args.tasks_dir).write_report(args.task_id, _text_file(args.report_file), actor=args.actor).as_dict()
@@ -262,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = TaskStore(args.tasks_dir).write_review(args.task_id, _text_file(args.review_file), actor=args.actor).as_dict()
             elif args.command == "task-collect":
                 task = TaskStore(args.tasks_dir).get(args.task_id)
-                result = collect_evidence(task, _require_catalog(args.catalog)).as_dict()
+                result = collect_evidence(task, _require_catalog(args.catalog), tasks_root=args.tasks_dir).as_dict()
             elif args.command == "task-list":
                 result = {"tasks": [task.as_dict() for task in TaskStore(args.tasks_dir).list()]}
             elif args.command == "worktree-materialize":
@@ -407,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
                         record="retired by explicit operator confirmation",
                     )
                 result = {"agent_id": args.agent_id, "retired": args.yes}
-        except (OSError, KeyError, TypeError, ValueError, TaskError, WorktreeError, EvidenceError) as exc:
+        except (OSError, KeyError, TypeError, ValueError, TaskError, WorktreeError, EvidenceError, AssignmentError, ArtifactError, HandoffError, DispatchError, ReceiptError, SecretError) as exc:
             if args.json:
                 sys.stdout.write(json.dumps({"valid": False, "error": str(exc)}, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
             else:
@@ -534,6 +710,52 @@ def _text_file(path: str) -> str:
             return stream.read()
     except OSError as exc:
         raise ValueError(f"unable to read text input: {type(exc).__name__}") from exc
+
+
+def _local_file_remote(value: str) -> Path:
+    parsed = urlparse(value)
+    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+        raise AssignmentError("version 1 review handoff requires a host-local file:// mirror")
+    path = Path(unquote(parsed.path)).resolve(strict=True)
+    if not path.is_dir():
+        raise AssignmentError("delivery mirror does not exist")
+    return path
+
+
+def _leader_token(catalog: dict[str, object], secrets_file: str) -> str:
+    agents = catalog.get("agents")
+    leaders = [agent for agent in agents.values() if isinstance(agent, dict) and agent.get("role") == "leader"] if isinstance(agents, dict) else []
+    if len(leaders) != 1:
+        raise AssignmentError("catalog must contain exactly one leader")
+    reference = leaders[0]["discord"]["bot_secret_ref"]
+    values = load_secret_values(secrets_file)
+    if reference not in values:
+        raise SecretError("leader Discord Secret reference is unresolved")
+    return values[reference]
+
+
+def _leader_agent_id(catalog: dict[str, object]) -> str:
+    agents = catalog.get("agents")
+    leaders = [(agent_id, agent) for agent_id, agent in agents.items() if isinstance(agent, dict) and agent.get("role") == "leader"] if isinstance(agents, dict) else []
+    if len(leaders) != 1:
+        raise AssignmentError("catalog must contain exactly one leader")
+    return str(leaders[0][0])
+
+
+def _discord_clients(catalog: dict[str, object], secrets_file: str) -> dict[str, DiscordApi]:
+    values = load_secret_values(secrets_file)
+    agents = catalog.get("agents")
+    if not isinstance(agents, dict):
+        raise AssignmentError("catalog has no agents")
+    clients: dict[str, DiscordApi] = {}
+    for agent_id, agent in agents.items():
+        if not isinstance(agent, dict) or not isinstance(agent.get("discord"), dict):
+            raise AssignmentError("invalid Discord catalog binding")
+        reference = agent["discord"].get("bot_secret_ref")
+        if not isinstance(reference, str) or reference not in values:
+            raise SecretError(f"unresolved Discord Secret reference: {reference}")
+        clients[str(agent_id)] = DiscordApi(values[reference])
+    return clients
 
 
 def _task_from_file(path: str) -> Task:

@@ -98,19 +98,17 @@ tasks:
         --output '{{.BACKUP_OUTPUT}}' --attestation '{{.BACKUP_ATTESTATION}}' --yes --json
 
   deploy:
-    desc: Confirmed deploy; requires CONFIRM=yes and BACKUP_ATTESTATION.
+    desc: Confirmed deploy without an automatic backup; requires CONFIRM=yes.
     requires:
-      vars: [CONFIRM, BACKUP_ATTESTATION]
+      vars: [CONFIRM]
     cmds:
       - |
         test '{{.CONFIRM}}' = 'yes' || {
           echo 'Refusing deploy: use CONFIRM=yes.' >&2
           exit 2
         }
-      - bash scripts/export-k3s-state.sh
       - >-
         PYTHONPATH=. python3 -m oab_control.cli deploy config/catalog.yaml
         --environment config/environment.yaml --chart '{{.CHART}}'
-        --secrets-file config/secrets.yaml --backup-sources config/backup-sources.json
-        --backup-output '{{.BACKUP_OUTPUT}}' --backup-attestation '{{.BACKUP_ATTESTATION}}'
+        --secrets-file config/secrets.yaml
         --snapshot-dir '{{.SNAPSHOT_DIR}}' --yes --json

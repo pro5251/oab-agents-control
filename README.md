@@ -26,7 +26,7 @@ OpenAB 多 Agent 架構的 **Local-first Control CLI**。
 
 **本 repository 不是 agent 本身**，而是負責「安全地把這套編制部署與治理起來」
 的控制工具：把一組 AI agent 當成**有嚴格權限邊界的團隊成員**來管理，
-並把所有危險操作關在「驗證 → 計畫 → 備份 → 人類確認」的閘門後面。
+並把所有危險操作關在「驗證 → 計畫 → 人類確認」的閘門後面；備份則保留為可選的獨立操作。
 
 ### 核心職責
 
@@ -36,7 +36,7 @@ OpenAB 多 Agent 架構的 **Local-first Control CLI**。
 | **產生部署產物** | 投影成 OpenAB Helm values 與 Kubernetes 隔離資源（SA、RBAC、default-deny NetworkPolicy） |
 | **獨立 worktree** | 為每個 agent 對每個授權 repository 做完整 `git clone`，彼此隔離，不掛載 source collection |
 | **任務治理** | leader 專屬的持久任務紀錄、明確生命週期、程式任務驗收閘門 |
-| **具防護的部署** | `deploy` 預設只輸出 plan；確認套用需先完成外部加密備份 |
+| **具防護的部署** | `deploy` 預設只輸出 plan；確認套用需明確的人類確認，備份可獨立執行 |
 | **權限分界** | 部署與寫入 Secret 使用兩份不同、各自 namespace-scoped 的 kubeconfig |
 
 ### 設計主張
@@ -122,9 +122,10 @@ flowchart TD
     D0["environment 轉為 ready"]
     D1["preflight"]
     D2{"deploy --yes 確認"}
-    D3["backup · 若失敗中止"]
+    D3["backup · 選用"]
     D4["kubectl apply · helm upgrade"]
-    D0 --> D1 --> D2 --> D3 --> D4
+    D0 --> D1 --> D2 --> D4
+    D2 -.選擇先備份.-> D3 --> D4
   end
 
   B2 --> V0
@@ -138,7 +139,7 @@ flowchart TD
 ## 快速開始
 
 ```bash
-PYTHONPATH=. python3 -m unittest discover -s tests -v          # 133 項測試
+PYTHONPATH=. python3 -m unittest discover -s tests -v          # 136 項測試
 PYTHONPATH=. python3 -m oab_control.cli validate \
   examples/catalog.example.yaml --no-path-check \
   --secrets-file config/reference-manifest.example.yaml --json
@@ -197,13 +198,45 @@ task preflight
 task deploy:preview
 ```
 
-正式部署仍要求明確確認與 backup attestation：
+正式部署要求明確確認，但不會自動備份：
 
 ```bash
 export KUBECONFIG=/home/nickhuang23/.kube/oab-control-deployer.kubeconfig
 export OAB_SECRET_MATERIALIZER_KUBECONFIG=/home/nickhuang23/.kube/oab-control-secret-materializer.kubeconfig
 
-task deploy CONFIRM=yes BACKUP_ATTESTATION='local project-directory bootstrap backup'
+task deploy CONFIRM=yes
+```
+
+`task deploy` 會對整份 catalog 執行 Helm upgrade，但不代表四個 agent Pod
+一定全部重新建立。OpenAB chart 會計算各 agent 的 Pod template checksum，只有設定或
+image 發生變更的 agent 才會觸發 rollout：
+
+- 只修改 leader 的 `allowed_users`：通常只會重新建立 leader Pod。
+- 四個 agent 的 image 都變更：四個 Pod 都會重新建立。
+- 部署內容沒有變更：不會重新建立 Pod。
+- 只更新 Secret 值：Pod template 不一定改變，現有 Pod 可能仍使用舊環境變數。
+
+若要在部署後強制重新建立並等待全部四個 agent 完成 rollout：
+
+```bash
+task deploy CONFIRM=yes
+task restart:all
+```
+
+只強制重啟單一 agent：
+
+```bash
+task restart AGENT=leader
+```
+
+`task deploy` 本身不會等待所有 rollout 完成；`task restart` 與
+`task restart:all` 會等待對應 Deployment 完成 rollout。
+
+若需要部署前備份，先獨立執行：
+
+```bash
+task backup BACKUP_ATTESTATION='manual backup before deploy'
+task deploy CONFIRM=yes
 ```
 
 ---
@@ -316,6 +349,7 @@ kubectl -n oab-agents logs deployment/leader --previous --tail=100
 | [docs/git-遠端與憑證配置手冊.md](docs/git-遠端與憑證配置手冊.md) | SSH／PAT 設定與 GitHub 推送 | 設定版控時 |
 | [docs/參考/catalog-契約.md](docs/參考/catalog-契約.md) | Catalog 欄位契約與驗證規則逐條說明 | 撰寫或除錯 catalog |
 | [docs/參考/完整度檢查.html](docs/參考/完整度檢查.html) | 2026-09-04 的完整度稽核報告 | 了解目前實作狀態 |
+| [fix/](fix/) | 每日疑難排解紀錄（`yyyy-MM-dd.md`） | 遇到曾經發生過的操作或部署問題 |
 
 完整索引見 **[docs/README.md](docs/README.md)**。
 
@@ -330,7 +364,7 @@ kubectl -n oab-agents logs deployment/leader --previous --tail=100
 | K3s 安裝與 Secret-at-rest 加密 | A001 |
 | namespace-scoped deployer RBAC | A003 |
 | local egress proxy 與 domain policy | A005 |
-| Discord 資源權限與 dispatch adapter | A007 |
+| 控制平面 assignment、Discord provenance 與 review handoff | A007 |
 | GitLab MR 與 CI evidence adapter | A009 |
 | 外部加密備份／還原演練 | A011、A012 |
 | 單一低風險的 end-to-end tracer bullet | A013、A014 |

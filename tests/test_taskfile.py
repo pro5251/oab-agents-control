@@ -31,6 +31,17 @@ class TaskfileTests(unittest.TestCase):
         for task_name in ("pods", "images", "logs", "logs:follow", "logs:previous", "auth", "restart", "restart:all"):
             self.assertIn("kubeconfig:check", tasks[task_name]["deps"])
 
+    def test_deploy_does_not_require_or_run_backup_by_default(self):
+        document = yaml.safe_load((REPO_ROOT / "Taskfile.yml").read_text(encoding="utf-8"))
+        deploy = document["tasks"]["deploy"]
+        command = "\n".join(deploy["cmds"])
+
+        self.assertEqual(deploy["requires"]["vars"], ["CONFIRM"])
+        self.assertNotIn("export-k3s-state.sh", command)
+        self.assertNotIn("--backup-sources", command)
+        self.assertNotIn("--backup-output", command)
+        self.assertNotIn("--backup-attestation", command)
+
 
 if __name__ == "__main__":
     unittest.main()

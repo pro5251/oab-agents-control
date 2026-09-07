@@ -110,8 +110,8 @@ def dispatch_channel(catalog: Mapping[str, Any], *, agent_id: str, task_envelope
     required = ("task_id", "repo", "checkout_subpath", "worktree_path", "branch", "base_branch", "delivery_owner", "deadline", "reply_to")
     if any(not isinstance(task_envelope.get(key), str) or not task_envelope[key].strip() for key in required):
         raise DiscordPolicyError("task envelope is missing required routing fields")
-    if task_envelope.get("agent_id") not in {None, agent_id}:
-        raise DiscordPolicyError("task envelope belongs to a different agent")
+    if task_envelope.get("target_agent_id") != agent_id:
+        raise DiscordPolicyError("task envelope target agent is missing or does not match")
     work_channel = _channel(agent.get("discord", {}), agent.get("role"))
     if not work_channel:
         raise DiscordPolicyError("worker has no private work channel")

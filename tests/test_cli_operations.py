@@ -14,9 +14,36 @@ from oab_control.cli import main
 from test_catalog import catalog
 from test_tasks import task
 from test_worktree import repository_fixture
+from test_assignments import AssignmentStoreTests
+from test_environment import environment
 
 
 class CliOperationTests(unittest.TestCase):
+    def test_assignment_prepare_cli_creates_repo_external_execution_brief(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            normalized, tasks, inbox_root = AssignmentStoreTests().fixture(root)
+            catalog_path = root / "catalog.yaml"
+            catalog_path.write_text(yaml.safe_dump(normalized, sort_keys=False), encoding="utf-8")
+            for name in ("control", "coordination", "repositories", "worktrees", "k3s", "backups"):
+                (root / name).mkdir(exist_ok=True)
+            environment_path = root / "environment.yaml"
+            environment_path.write_text(yaml.safe_dump(environment(root), sort_keys=False), encoding="utf-8")
+            remotes_path = root / "remotes.json"
+            remotes_path.write_text("{}")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main([
+                    "assignment-prepare", "task-001", "--phase", "execution", "--agent", "developer",
+                    "--catalog", str(catalog_path), "--environment", str(environment_path),
+                    "--remotes-file", str(remotes_path), "--tasks-dir", str(tasks.root), "--no-path-check", "--json",
+                ])
+            result = json.loads(output.getvalue())
+            brief_exists = (inbox_root / "developer" / result["assignment_id"] / "TASK.md").is_file()
+        self.assertEqual(code, 0)
+        self.assertEqual(result["status"], "prepared")
+        self.assertTrue(brief_exists)
+
     def test_deploy_cli_requires_confirmation_before_apply(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

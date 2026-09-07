@@ -1,7 +1,7 @@
 # 0004. AGENTS.md 逐角色不對稱，worker 不知道驗收判準
 
 日期：2026-09-04
-狀態：已採用
+狀態：已採用；leader 派工責任由 [ADR 0005](0005-control-plane-assignment-handoff.md) 修正
 
 ## 背景
 
@@ -21,7 +21,7 @@ Chart 支援 `agentsMd`：內容渲染進 ConfigMap，
 
 | 角色 | 被告知 | 不被告知 |
 | --- | --- | --- |
-| leader agent | 派工流程、完整驗收閘門清單 | — |
+| leader agent | 完整驗收閘門清單、操作員交付的協調資訊 | 派工能力、worker 私有頻道 |
 | worker | 只接受 leader 提及、回報對象、自己的職責 | 驗收閘門的判準 |
 
 Worker 知道閘門存在（那是它不該 push 的原因），

@@ -37,6 +37,7 @@ _PATH_FIELDS = {
     "coordination_repository",
     "collection_roots",
     "agent_worktrees_root",
+    "assignment_inbox_root",
     "k3s_state",
     "backup_target",
     "secrets_file",
